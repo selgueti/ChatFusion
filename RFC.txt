@@ -1,0 +1,195 @@
+RFC ChatFusion produit par PETIOT Hugo et EL GUETIBI Sofian, inspiré du fichier fournis: rfc-fusion.txt
+
+
+
+Ce document décrit le protocole ChatFusion. Le protocole permet à des clients de communiquer avec un serveur ChatFusion. Les serveurs ChatFusion se comporte comme des serveurs de discussion classiques. L'originalité de ce protocole est de permettre à plusieurs serveurs de fusionner pour se comporter comme un seul serveur fusionné. L'ensemble des communications entre clients et serveurs se feront au dessus de TCP.
+
+
+Fonctionnement général et terminologie :
+----------------------------------------
+
+
+Serveur: possède un nom qui ne doit pas dépasser 30 octets une fois encodé en UTF8, ce nom est fixé pour toute la durée de vie du serveur et doit être composé avec les caractères suivants: [a-zA-Z0-9_]+. Il permet aux clients de se connecter au réseau ChatFusion et doit connaître l’adresse (SOCKETADRESS) du serveurFusionManager à son lancement.
+
+Cluster: un cluster de serveur forme un sous-réseau au sein duquel, tous les serveurs connaissent les adresses (SOCKETADRESS) de tous les autres membres du cluster. Un tel cluster peut ne contenir qu'un serveur.
+
+serveurFusionManager: Un serveur spécifique et unique à chaque réseau ChatFusion. Il permet d'orchestrer la fusion des clusters des serveurs. A leur création, les serveurs devront connaître l'adresse (SOCKETADRESS) du serveurFusionManager.
+
+
+Représentation des données :
+----------------------------
+
+Les entiers (INT) sur 4 octets signés et les longs (LONG) sur 8 octets signés sont tous transmis en BigEndian.
+
+Les chaînes de caractères (STRING) sont encodées en UTF-8 BigEndian et précédées de la taille de leur représentation en octets sur un LONG.
+
+    STRING = taille (LONG) chaîne encodée en UTF-8
+
+Une adresse IP (IPADDRESS) est représentée par un octet valant 4 ou 6 selon que l'adresse est au format IPv4 ou IPv6 suivi des 4 octets ou 16 octets de l'adresse selon qu'elle est IPv4 ou IPv6.
+
+Une adresse de socket (SOCKETADDRESS) contenant un adresse IP et un numéro de port est représentée par un IPADDRESS suivi d'un INT valant entre 0 et 65 535.
+
+   SOCKETADDRESS = adresse IP (IPADDRESS) + numéro de port entre 0 et 65 535 (INT)
+
+
+Descriptions des différentes actions de chat
+--------------------------------------------
+
+Les communications entre clients et serveurs et entre les serveurs se fait au moyen de commandes qui sont des trames commençant par un octet signé (OPCODE) indiquant le type de la commande.
+
+1) Identification
+   --------------
+
+a) Commande du client
+   ------------------
+
+Pour pouvoir interagir avec un serveur, un client doit s'authentifier auprès de ce serveur. L'authentification est donc la seule action possible pour un client avant l'établissement d'une connexion. Il y a deux types d'authentifications possibles : une authentification anonyme et une authentification avec mot de passe. Dans les deux cas, le client propose un login qui sera son identifiant sur le serveur. Le serveur ne doit en aucun cas avoir deux clients connectés et authentifiés avec le même login.
+
+Pour un identification anonyme, le client enverra la commande LOGIN_ANONYMOUS (0) d'OPCODE 0 suivi d'une STRING contenant le login. La string du LOGIN ne peut pas occuper plus de 30 octets.
+
+LOGIN_ANONYMOUS(0) = 0 (OPCODE) login (STRING<=30)
+
+Pour une identification avec mot de passe, le client enverra la commande LOGIN_PASSWORD (1) d'OPCODE 1 suivi d'une STRING contenant le login et d'une STRING contenant le mot de passe. Les deux strings ne peuvent pas faire plus de 30 octets.
+
+LOGIN_PASSWORD(1) = 1 (OPCODE) login (STRING<=30) password (STRING<=30)
+LOGIN_ANONYMOUS
+Si le serveur refuse l'authentification, il renvoie la commande LOGIN_REFUSED(3) d'OPCODE 3.
+
+LOGIN_REFUSED(3) = 3 (OPCODE)
+
+Seules les commandes LOGIN_ANONYMOUS(0) et LOGIN_PASSWORD(1) peuvent être traitées par le serveur tant que le client n'est pas identifié avec succès (à l'exception des commandes FUSION_*, voir partie “Fusion entre serveur”). L'identification ne peut avoir lieu qu'une seule fois avec succès.
+
+2) Fonctionnalité de chat
+   ----------------------
+
+a) Message public :
+   -----------------
+Pour envoyer un message à tous les clients connectés dans le cluster de son serveur, un client envoie une commande MESSAGE_PUBLIC_SEND (4) d’OPCODE 4 au serveur auquel il est connecté directement.
+
+MESSAGE_PUBLIC_SEND (4) = 4 (OPCODE) serveur_src(STRING <= 30) login_src  (STRING<=30) msg (STRING <= 1024).
+
+Le login doit être le login utilisé lors de l'identification.
+Le message msg ne peut pas occuper plus de 1024 octets.
+
+Le serveur qui reçoit une commande MESSAGE_PUBLIC_SEND(5) d’OPCODE 5 d’un client après avoir vérifié la validité du login:
+Le transmet à tous ses clients, ormis l'expéditeur. Puis le transmet à tout son cluster. Ceci à l'aide de la commande MESSAGE_PUBLIC_TRANSMIT(5) d'OPCODE 5.
+
+MESSAGE_PUBLIC_TRANSMIT (5) = 5 (OPCODE)  serveur (STRING <= 30) login (STRING <= 30) msg (STRING <= 1024).
+
+Un serveur recevant cette commande la transmet à tous ses clients.
+
+EXEMPLE.
+On a un cluster composé des serveurs A, B et C. Un client 1 est authentifié avec le login Client1 auprès du serveur B et veut envoyer un message public. Il envoie une commande MESSAGE_PUBLIC_SEND [4, “B”, “Client1”, “blabla”] au serveur B. Le serveur B construit alors la commande MESSAGE_PUBLIC_TRANSMIT [5, “B”, “Client1”, “blabla”]. Il envoie cette commande à tous les clients connectés sur lui, sauf Client1, ainsi qu’à tous les serveurs qu’il connaît. Les serveurs A et C vont alors recevoir cette commande et directement la transmettre à tous les clients qui sont connectés sur eux.
+
+
+b) Message privé :
+   ---------------
+
+Pour envoyer un message privé à un client ayant le login login_dest sur le serveur serveur_dest, un client envoie à son serveur une commande MESSAGE_PRIVATE(6) d'OPCODE 6.
+
+MESSAGE_PRIVATE(6) = 6 (OPCODE) server_src (STRING<=30) login_src (STRING<=30) server_dst (STRING<=30) login_dest (STRING<=30) msg (STRING<=1024)
+
+Le serveur_src doit être le nom du serveur au quel le client est connecté.
+Le login_src doit être le login utilisé par le client lors de l'authentification.
+Le serveur_dst est le nom du serveur sur lequel se trouve le destinataire du message privé.
+Le login_dst est le login du destinataire sur le serveur_dst.
+
+Si un serveur A reçoit une commande MESSAGE_PRIVATE(6) d'un client, après avoir vérifié sa validité, va :
+
+1) si server_dst est A, transférer la commande au client de login_dst s'il existe (sinon la commande est ignorée)
+2) si server_dst est un autre serveur, il va :
+   a) si server_dst est connecté au server_src, transférer la commande au server_dst
+   b) sinon la commande est ignorée
+
+Si un serveur A reçoit une commande MESSAGE_PRIVATE(6) d'un autre serveur B du même cluster, il va :
+1) transmettre la commande MESSAGE_PRIVATE(6) au client de login login_dst (s'il existe) si le nom de A est server_dst
+2) sinon la commande est ignorée.
+
+
+EXEMPLE.
+On a un cluster composé des serveurs A,B et C. Un client 1  authentifié avec le login client1 auprès du serveur C veut envoyer un message privé au client 2 qui est authentifié avec le login client2 au prêt du serveur B. Le client 1 va envoyer au serveur C la commande [6,"C","client1","B","client2","Bonjour à toi client2"].
+Le serveur C va envoyer cette commande au serveur B qui va la transmettre  au client ayant le login client2 (s'il existe).
+
+
+c) Envoi d'un fichier privé :
+   --------------------------
+
+L'envoi d'un fichier en privé suit la même logique que l'envoi des messages privés.
+Pour ne pas créer de commande de taille trop importante, le fichier à envoyer est coupé en n morceaux de taille au plus 5000 octets. Un client voulant envoyer un fichier au client ayant le login login_dest sur le serveur_dst enverra à son serveur une série de commandes FILE_PRIVATE d'OPCODE 7. Chaque commande FILE_PRIVATE correspondra à un morceau du fichier.
+
+FILE_PRIVATE(7) = 7 (OPCODE) server_src (STRING<=30) login_src (STRING<=30) server_dst (STRING<=30) login_dest (STRING<=30) filename (STRING<=100) nb_blocks (INT) block_size (INT) block (BYTES)
+
+
+Le serveur_src doit être le nom du serveur au quel le client est connecté.
+Le login_src doit être le login utilisé par le client lors de l'authentification.
+Le serveur_dst est le nom du serveur sur lequel se trouve le destinataire du message privé.
+Le login_dst est le login du destinataire sur le serveur_dst.
+Le filename est le nom du fichier.
+nb_blocks est le nombre total de morceau
+block_size est la taille en octets (<=5000) du morceau contenu dans cette commande
+block correspond aux octets du morceau.
+
+Les commandes FILE_PRIVATE(7) sont transmises selon le même protocole que les commandes MESSAGE_PRIVATE(6).
+
+
+Fusion entre serveurs :
+-----------------------
+
+Nous allons maintenant décrire le protocole pour qu'un serveur A (qui fait partie d'un cluster) fusionne avec à un serveur B (qui fait partie d'un autre cluster). Le ServerFusionManager traite les demandes de fusion les unes à la suite des autres.
+Les serveurs appartenant au cluster du serveur A doivent connaître les adresses (SOCKETADRESS) des serveurs appartenant au cluster du serveur B et vice-versa.
+
+
+
+A) Enregistrement du serveur auprès du ServerFusionManager
+  ------------------------
+
+A envoie une commande pour s’enregistrer auprès du ServerFusionManager.
+FUSION_REGISTER_SERVER(8) d’OPCODE 8.
+
+FUSION_REGISTER_SERVER(8) = 8 (OPCODE) name (STRING<=30)
+
+
+B) Initiation de la fusion
+  ------------------------
+
+A envoie  une demande de fusion au ServerFusionManager avec une commande
+FUSION_INIT(9) d’OPCODE 9.
+
+FUSION_INIT(9) = 9 (OPCODE) name (STRING<=30) adresse (SOCKETADDRESS)
+
+Si name ou adresse sont inconnues du ServerFusionManager, ServerFusionManager répond avec une commande FUSION_INEXISTANT_SERVER(10) d’OPCODE 10.
+
+FUSION_INEXISTANT_SERVER(10) = 10 (OPCODE)
+
+
+Sinon, ServerFusionManager envoie une commande FUSION_ROUTE_TABLE_ASK(11) d’OPCODE 11 aux deux serveurs concernés (A et B).
+
+FUSION_ROUTE_TABLE_ASK(11)  = 11 (OPCODE)
+
+Les serveurs répondent avec la commande FUSION_ROUTE_TABLE_SEND(12) d’OPCODE 12 contenant leur table de routage.
+
+FUSION_ROUTE_TABLE_SEND(12) = 12 (OPCODE) nb_members (INT) name_0 (STRING<=30)  address1 (SOCKETADDRESS) name_1 ...
+
+Pendant le calcul de la nouvelle table de routage, si le ServerFusionManager remarque que les serveurs des clusters n’ont pas tous des noms uniques,  ServerFusionManager renvoie une commande FUSION_INVALID_NAME(13) d’OPCODE 13 au serveur qui a demandé la fusion.
+
+FUSION_INVALID_NAME(13)  = 13 (OPCODE)
+
+C) Réalisation de la fusion :
+   -------------------------
+
+Sinon ServerFusionManager renvoie à tous les serveurs du nouveau cluster la nouvelle table de routage calculée avec la commande FUSION_TABLE_ROUTE_RESULT(14) d’OPCODE 14 pour remplacement de leur table.
+
+FUSION_TABLE_ROUTE_RESULT(14) = 14 (OPCODE) nb_members (INT) name_0 (STRING<=30)  address1 (SOCKETADDRESS) name_1 …
+
+
+Lors de la récéption d'une nouvelle table de routage (déjà triée par ServerFusionManager), les serveurs sont chargé d'établire les connexions avec tous les "nouveaux" serveurs dont les noms sont lexicographiquement inférieur avec une commande SERVER_CONNEXION(15) d'OPCODE 15.
+
+SERVER_CONNEXION(15) = 15 (OPCODE) name (STRING<=30)
+
+À ce stade ServerFusionManager peut traiter une nouvelle demande de fusion.
+
+
+Problèmes connus
+----------------
+
+Ceci est un projet pédagogique. Le protocole ne permet aucune récupération si un serveur est redémarré ou tombe en panne. Si le ServerFusionManager tombe, il est cependant toujours possible d’utiliser les différents clusters pour l’envoie de message/fichier, cepandant aucune nouvelle fusion n'est possible.
