@@ -1,22 +1,23 @@
-package fr.uge.net.chatFusion.token;
+package fr.uge.net.chatFusion.writer;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-public class Message {
+public class MessageWriter {
 
     private final String login;
     private final String text;
     private ByteBuffer internalBuffer = null;
 
-    public Message(String login, String text) {
+    public MessageWriter(String login, String text) {
         Objects.requireNonNull(login);
         Objects.requireNonNull(text);
         this.login = login;
         this.text = text;
     }
-    public Message(Message msg) {
+
+    public MessageWriter(MessageWriter msg) {
         this(msg.login, msg.text);
     }
 

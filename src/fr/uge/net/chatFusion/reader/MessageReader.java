@@ -1,10 +1,10 @@
 package fr.uge.net.chatFusion.reader;
 
-import fr.uge.net.chatFusion.token.Message;
+import fr.uge.net.chatFusion.writer.MessageWriter;
 
 import java.nio.ByteBuffer;
 
-public class MessageReader implements Reader<Message> {
+public class MessageReader implements Reader<MessageWriter> {
 
     private final StringReader stringReader = new StringReader();
     private State state = State.WAITING_LOGIN;
@@ -47,11 +47,11 @@ public class MessageReader implements Reader<Message> {
     }
 
     @Override
-    public Message get() {
+    public MessageWriter get() {
         if (state != State.DONE) {
             throw new IllegalStateException();
         }
-        return new Message(login, text);
+        return new MessageWriter(login, text);
     }
 
     @Override

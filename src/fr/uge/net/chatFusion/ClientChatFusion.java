@@ -2,7 +2,7 @@ package fr.uge.net.chatFusion;
 
 import fr.uge.net.chatFusion.reader.MessageReader;
 import fr.uge.net.chatFusion.reader.Reader;
-import fr.uge.net.chatFusion.token.Message;
+import fr.uge.net.chatFusion.writer.MessageWriter;
 import fr.uge.net.chatFusion.util.StringController;
 
 import java.io.IOException;
@@ -83,7 +83,7 @@ public class ClientChatFusion {
      */
     private void processCommands() {
         while (stringController.hasString()) {
-            uniqueContext.queueMessage(new Message(login, stringController.poll()));
+            uniqueContext.queueMessage(new MessageWriter(login, stringController.poll()));
         }
     }
 
@@ -161,7 +161,7 @@ public class ClientChatFusion {
         private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
         private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
         private final MessageReader messageReader = new MessageReader();
-        private final ArrayDeque<Message> queue = new ArrayDeque<>();
+        private final ArrayDeque<MessageWriter> queue = new ArrayDeque<>();
         private boolean closed = false;
 
         private Context(SelectionKey key) {
@@ -198,7 +198,7 @@ public class ClientChatFusion {
          *
          * @param msg - msg
          */
-        private void queueMessage(Message msg) {
+        private void queueMessage(MessageWriter msg) {
             queue.addLast(msg);
             processOut();
             updateInterestOps();

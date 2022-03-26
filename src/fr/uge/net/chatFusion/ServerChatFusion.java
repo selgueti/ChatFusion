@@ -2,7 +2,7 @@ package fr.uge.net.chatFusion;
 
 import fr.uge.net.chatFusion.reader.MessageReader;
 import fr.uge.net.chatFusion.reader.Reader;
-import fr.uge.net.chatFusion.token.Message;
+import fr.uge.net.chatFusion.writer.MessageWriter;
 import fr.uge.net.chatFusion.util.StringController;
 
 import java.io.IOException;
@@ -211,14 +211,14 @@ public class ServerChatFusion {
      *
      * @param msg - text to add to all connected clients queue
      */
-    private void broadcast(Message msg) {
+    private void broadcast(MessageWriter msg) {
         Objects.requireNonNull(msg);
         for (SelectionKey key : selector.keys()) {
             if (key.channel() == serverSocketChannel) {
                 continue;
             }
             Context context = (Context) key.attachment(); // Safe Cast
-            context.queueMessage(new Message(msg));
+            context.queueMessage(new MessageWriter(msg));
         }
     }
 
@@ -227,7 +227,7 @@ public class ServerChatFusion {
         private final SocketChannel sc;
         private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
         private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
-        private final ArrayDeque<Message> queue = new ArrayDeque<>();
+        private final ArrayDeque<MessageWriter> queue = new ArrayDeque<>();
         private final ServerChatFusion server; // we could also have Context as an instance class, which would naturally
         private final MessageReader messageReader = new MessageReader();
         // give access to ServerChatInt.this
@@ -268,7 +268,7 @@ public class ServerChatFusion {
          *
          * @param msg - text to add to the text queue
          */
-        public void queueMessage(Message msg) {
+        public void queueMessage(MessageWriter msg) {
             queue.addLast(msg);
             processOut();
             updateInterestOps();
