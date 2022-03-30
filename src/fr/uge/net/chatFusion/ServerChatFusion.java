@@ -1,8 +1,5 @@
 package fr.uge.net.chatFusion;
 
-import fr.uge.net.chatFusion.reader.MessageReader;
-import fr.uge.net.chatFusion.reader.Reader;
-import fr.uge.net.chatFusion.writer.MessageWriter;
 import fr.uge.net.chatFusion.util.StringController;
 
 import java.io.IOException;
@@ -10,9 +7,7 @@ import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
-import java.util.ArrayDeque;
-import java.util.Objects;
-import java.util.Scanner;
+import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -25,6 +20,7 @@ public class ServerChatFusion {
     private final String name;
     private final Thread console;
     private final StringController stringController = new StringController();
+    private final Map<Byte, OpCodeEntry> commandMap = new HashMap<>();
 
     public ServerChatFusion(String name, int port, InetSocketAddress sfmAddress) throws IOException {
         serverSocketChannel = ServerSocketChannel.open();
@@ -65,7 +61,7 @@ public class ServerChatFusion {
                         closed = true;
                         scanner.close();
                     }
-                    sendCommand(command);
+                    sendInstruction(command);
                 }
             }
             logger.info("Console thread stopping");
@@ -80,7 +76,7 @@ public class ServerChatFusion {
      * @param command - command
      * @throws InterruptedException - if thread has been interrupted
      */
-    private void sendCommand(String command) throws InterruptedException {
+    private void sendInstruction(String command) throws InterruptedException {
         stringController.add(command);
         selector.wakeup();
         // Cause the exception if the main thread has requested the interrupt
@@ -206,37 +202,49 @@ public class ServerChatFusion {
         }
     }
 
-    /**
-     * Add a text to all connected clients queue
-     *
-     * @param msg - text to add to all connected clients queue
-     */
-    private void broadcast(MessageWriter msg) {
-        Objects.requireNonNull(msg);
-        for (SelectionKey key : selector.keys()) {
-            if (key.channel() == serverSocketChannel) {
-                continue;
-            }
-            Context context = (Context) key.attachment(); // Safe Cast
-            context.queueMessage(new MessageWriter(msg));
-        }
-    }
+
+//    /**
+//     * Add a text to all connected clients queue
+//     *
+//     * @param cmd - text to add to all connected clients queue
+//     */
+//    private void broadcast(Command cmd) {
+//        Objects.requireNonNull(cmd);
+//        for (SelectionKey key : selector.keys()) {
+//            if (key.channel() == serverSocketChannel) {
+//                continue;
+//            }
+//            //Context context = (Context) key.attachment(); // Safe Cast
+//            if(commandMap.containsKey(cmd.getOpcode())){
+//                commandMap.get(cmd.getOpcode()).handler().accept(cmd);
+//                //context.queueMessage(new PublicMessage( , msg));
+//            }
+//        }
+//    }
+
+
 
     static private class Context {
         private final SelectionKey key;
         private final SocketChannel sc;
         private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
         private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
-        private final ArrayDeque<MessageWriter> queue = new ArrayDeque<>();
+        private final ArrayDeque<Command> queue = new ArrayDeque<>();
         private final ServerChatFusion server; // we could also have Context as an instance class, which would naturally
-        private final MessageReader messageReader = new MessageReader();
         // give access to ServerChatInt.this
         private boolean closed = false;
+        private State state = State.WAITING_OPCODE;
+        private byte currentProcess;
 
         private Context(ServerChatFusion server, SelectionKey key) {
             this.key = key;
             this.sc = (SocketChannel) key.channel();
             this.server = server;
+        }
+
+        enum State {
+            WAITING_OPCODE,
+            PROCESS_IN
         }
 
         /**
@@ -247,18 +255,31 @@ public class ServerChatFusion {
          */
         private void processIn() {
             for (; ; ) {
-                Reader.ProcessStatus status = messageReader.process(bufferIn);
-                switch (status) {
-                    case DONE:
-                        var message = messageReader.get();
-                        server.broadcast(message);
-                        messageReader.reset();
-                        break;
-                    case REFILL:
-                        return;
-                    case ERROR:
-                        silentlyClose();
-                        return;
+                if(state == Context.State.WAITING_OPCODE && bufferIn.position() != 0){
+                    currentProcess = bufferIn.get();
+                    state = Context.State.PROCESS_IN;
+                }
+                if(state == Context.State.PROCESS_IN){
+                    if(server.commandMap.containsKey(currentProcess)){
+                        // Read the command
+                        var readStatus = server.commandMap.get(currentProcess).command().readFrom(bufferIn);
+                        switch (readStatus) {
+                            case DONE:
+                                var opCodeEntry = server.commandMap.get(currentProcess);
+
+                                // applies the processing for this order
+                                server.commandMap.get(opCodeEntry.command().getOpcode()).handler().accept(server.commandMap.get(opCodeEntry.command().getOpcode()).command());
+                                opCodeEntry.command().reset(); // for next reading
+                                state = Context.State.WAITING_OPCODE;
+                                break;
+                            case REFILL_INPUT:
+                                return;
+
+                            case ERROR:
+                                //silentlyClose(); // not for a client, need to think about this
+                                return;
+                        }
+                    }
                 }
             }
         }
@@ -266,10 +287,10 @@ public class ServerChatFusion {
         /**
          * Add a text to the text queue, tries to fill bufferOut and updateInterestOps
          *
-         * @param msg - text to add to the text queue
+         * @param cmd - text to add to the text queue
          */
-        public void queueMessage(MessageWriter msg) {
-            queue.addLast(msg);
+        public void queueCommand(Command cmd) {
+            queue.addLast(cmd);
             processOut();
             updateInterestOps();
         }
@@ -279,9 +300,9 @@ public class ServerChatFusion {
          */
         private void processOut() {
             while (!queue.isEmpty()) {
-                var message = queue.peekFirst();
-                message.fillBuffer(bufferOut);
-                if (message.isDone()) {
+                var command = queue.peekFirst();
+                command.writeIn(bufferOut);
+                if (command.isTotalyWritten()) {
                     queue.removeFirst();
                 }
             }

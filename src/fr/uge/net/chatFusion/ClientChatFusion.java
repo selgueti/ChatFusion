@@ -1,8 +1,5 @@
 package fr.uge.net.chatFusion;
 
-import fr.uge.net.chatFusion.reader.MessageReader;
-import fr.uge.net.chatFusion.reader.Reader;
-import fr.uge.net.chatFusion.writer.MessageWriter;
 import fr.uge.net.chatFusion.util.StringController;
 
 import java.io.IOException;
@@ -14,8 +11,11 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayDeque;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Scanner;
 import java.util.logging.Logger;
+
 
 public class ClientChatFusion {
 
@@ -28,6 +28,10 @@ public class ClientChatFusion {
     private final Thread console;
     private final StringController stringController = new StringController();
     private Context uniqueContext;
+
+    private final Map<Byte, OpCodeEntry> commandMap = new HashMap<>();
+    //private final Map<Byte, Consumer<?super Command>> commandHandler = new HashMap<>();
+
 
     public ClientChatFusion(String login, InetSocketAddress serverAddress) throws IOException {
         this.serverAddress = serverAddress;
@@ -83,14 +87,16 @@ public class ClientChatFusion {
      */
     private void processCommands() {
         while (stringController.hasString()) {
-            uniqueContext.queueMessage(new MessageWriter(login, stringController.poll()));
+            // need to recognize command and call the good constructor
+            uniqueContext.queueCommand(new PublicMessage(login, stringController.poll()));
+            //uniqueContext.queueCommand(new MessageWriter(login, stringController.poll()));
         }
     }
 
     public void launch() throws IOException {
         sc.configureBlocking(false);
         var key = sc.register(selector, SelectionKey.OP_CONNECT);
-        uniqueContext = new Context(key);
+        uniqueContext = new Context(key, this);
         key.attach(uniqueContext);
         sc.connect(serverAddress);
 
@@ -160,13 +166,21 @@ public class ClientChatFusion {
         private final SocketChannel sc;
         private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
         private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
-        private final MessageReader messageReader = new MessageReader();
-        private final ArrayDeque<MessageWriter> queue = new ArrayDeque<>();
+        private final ArrayDeque<Command> queue = new ArrayDeque<>();
         private boolean closed = false;
+        private State state = State.WAITING_OPCODE;
+        private byte currentProcess;
+        private final ClientChatFusion client;
 
-        private Context(SelectionKey key) {
+        enum State {
+            WAITING_OPCODE,
+            PROCESS_IN
+        }
+
+        private Context(SelectionKey key, ClientChatFusion client) {
             this.key = key;
             this.sc = (SocketChannel) key.channel();
+            this.client = client;
         }
 
         /**
@@ -177,18 +191,31 @@ public class ClientChatFusion {
          */
         private void processIn() {
             for (; ; ) {
-                Reader.ProcessStatus status = messageReader.process(bufferIn);
-                switch (status) {
-                    case DONE:
-                        var message = messageReader.get();
-                        System.out.println(message);
-                        messageReader.reset();
-                        break;
-                    case REFILL:
-                        return;
-                    case ERROR:
-                        silentlyClose();
-                        return;
+                if(state == State.WAITING_OPCODE && bufferIn.position() != 0){
+                    currentProcess = bufferIn.get();
+                    state = State.PROCESS_IN;
+                }
+                if(state == State.PROCESS_IN){
+                    if(client.commandMap.containsKey(currentProcess)){
+                        // Read the command
+                        var readStatus = client.commandMap.get(currentProcess).command().readFrom(bufferIn);
+                        switch (readStatus) {
+                            case DONE:
+                                var opCodeEntry = client.commandMap.get(currentProcess);
+
+                                // applies the processing for this order
+                                client.commandMap.get(opCodeEntry.command().getOpcode()).handler().accept(client.commandMap.get(opCodeEntry.command().getOpcode()).command());
+                                opCodeEntry.command().reset(); // for next reading
+                                state = State.WAITING_OPCODE;
+                                break;
+                            case REFILL_INPUT:
+                                return;
+
+                            case ERROR:
+                                //silentlyClose(); // not for a client, need to think about this
+                                return;
+                        }
+                    }
                 }
             }
         }
@@ -196,10 +223,10 @@ public class ClientChatFusion {
         /**
          * Add a message to the message queue, tries to fill bufferOut and updateInterestOps
          *
-         * @param msg - msg
+         * @param cmd - cmd
          */
-        private void queueMessage(MessageWriter msg) {
-            queue.addLast(msg);
+        private void queueCommand(Command cmd) {
+            queue.addLast(cmd);
             processOut();
             updateInterestOps();
         }
@@ -209,9 +236,9 @@ public class ClientChatFusion {
          */
         private void processOut() {
             while (!queue.isEmpty()) {
-                var message = queue.peekFirst();
-                message.fillBuffer(bufferOut);
-                if (message.isDone()) {
+                var command = queue.peekFirst();
+                command.writeIn(bufferOut);
+                if (command.isTotalyWritten()) {
                     queue.removeFirst();
                 }
             }
