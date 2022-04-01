@@ -220,6 +220,7 @@ public class ClientChatFusion {
                 if (authenticationState == AuthenticationState.UNREGISTERED && readingState == ReadingState.PROCESS_IN && currentCommand == 3) {
                     logger.info("Username already used, please chose another one");
                     silentlyClose(); // TODO make sure scanner and main thread are closed to
+                    client.console.interrupt(); // TODO probably block into scanner, think about this
                 }
 
                 if (readingState == ReadingState.PROCESS_IN) {
