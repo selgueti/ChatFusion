@@ -26,10 +26,6 @@ public class LoginAcceptedReader implements Reader<LoginAccepted>{
                 }
                 case DONE -> {
                     serverName = stringReader.get();
-                    if (serverName.isEmpty()) {
-                        state = State.ERROR;
-                        return ProcessStatus.ERROR;
-                    }
                     state = State.DONE;
                 }
             }

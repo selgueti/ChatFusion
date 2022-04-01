@@ -25,10 +25,6 @@ public class LoginAnonymousReader implements Reader<LoginAnonymous> {
                 }
                 case DONE -> {
                     login = stringReader.get();
-                    if (login.isEmpty()) {
-                        state = State.ERROR;
-                        return ProcessStatus.ERROR;
-                    }
                     state = State.DONE;
                 }
             }
