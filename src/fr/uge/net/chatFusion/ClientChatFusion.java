@@ -165,7 +165,7 @@ public class ClientChatFusion {
         private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
         private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
         private final ArrayDeque<ByteBuffer> queue = new ArrayDeque<>();
-        private final Writer writer = new Writer(null);
+        private Writer writer = null;
         private final BytesReader opcodeReader = new BytesReader(1);
         private final ClientChatFusion client;
         private final LoginAcceptedReader loginAcceptedReader = new LoginAcceptedReader();
@@ -280,14 +280,16 @@ public class ClientChatFusion {
          */
         private void processOut() {
             while (!queue.isEmpty()) {
-                if (writer.isAcceptingNewCommand()) {
+                if (writer == null) {
                     var command = queue.peekFirst();
-                    writer.setInternalBuffer(command);
+                    writer = new Writer(command);
+                    //writer.setInternalBuffer(command);
                 }
                 writer.fillBuffer(bufferOut);
                 if (writer.isDone()) {
                     queue.removeFirst();
-                    writer.reset();
+                    writer = null;
+                    //writer.reset();
                 }
             }
         }
