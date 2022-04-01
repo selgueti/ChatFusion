@@ -1,5 +1,6 @@
 package fr.uge.net.chatFusion;
 
+import fr.uge.net.chatFusion.reader.Reader;
 import fr.uge.net.chatFusion.util.StringController;
 
 import java.io.IOException;
@@ -14,6 +15,7 @@ import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Scanner;
+import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 
@@ -29,6 +31,8 @@ public class ClientChatFusion {
     private final StringController stringController = new StringController();
     private Context uniqueContext;
 
+
+    //private final Map<Byte, OpCodeEntry> commandMap = new HashMap<>();
     private final Map<Byte, OpCodeEntry> commandMap = new HashMap<>();
     //private final Map<Byte, Consumer<?super Command>> commandHandler = new HashMap<>();
 
@@ -39,6 +43,16 @@ public class ClientChatFusion {
         this.sc = SocketChannel.open();
         this.selector = Selector.open();
         this.console = new Thread(this::consoleRun);
+        setOpCodeEntries();
+    }
+
+    private void setOpCodeEntries(){
+        commandMap.put((byte)4, new OpCodeEntry(new PublicMessage(), (pm) -> {
+            switch (pm){
+                case PublicMessage _pm -> System.out.println(_pm.getLogin() + " : " + _pm.getMsg());
+                case default -> {} // just ignore
+            }
+        }));
     }
 
     public static void main(String[] args) throws NumberFormatException, IOException {
@@ -238,7 +252,7 @@ public class ClientChatFusion {
             while (!queue.isEmpty()) {
                 var command = queue.peekFirst();
                 command.writeIn(bufferOut);
-                if (command.isTotalyWritten()) {
+                if (command.isTotallyWritten()) {
                     queue.removeFirst();
                 }
             }

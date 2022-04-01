@@ -1,5 +1,7 @@
 package fr.uge.net.chatFusion;
 
+import fr.uge.net.chatFusion.reader.PublicMessageReader;
+import fr.uge.net.chatFusion.reader.Reader;
 import fr.uge.net.chatFusion.util.StringController;
 
 import java.io.IOException;
@@ -8,6 +10,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -22,6 +25,13 @@ public class ServerChatFusion {
     private final StringController stringController = new StringController();
     private final Map<Byte, OpCodeEntry> commandMap = new HashMap<>();
 
+    private final Map<Byte, Consumer<ByteBuffer>> readers = new HashMap<>();
+    private final PublicMessageReader publicMessageReader = new PublicMessageReader();
+
+    private void setOpCodeEntries(){
+        readers.put((byte)4, publicMessageReader::process);
+    }
+
     public ServerChatFusion(String name, int port, InetSocketAddress sfmAddress) throws IOException {
         serverSocketChannel = ServerSocketChannel.open();
         serverSocketChannel.bind(new InetSocketAddress(port));
@@ -29,6 +39,7 @@ public class ServerChatFusion {
         this.sfmAddress = sfmAddress;
         this.name = name;
         this.console = new Thread(this::consoleRun);
+        setOpCodeEntries();
     }
 
     public static void main(String[] args) throws NumberFormatException, IOException {
@@ -88,17 +99,17 @@ public class ServerChatFusion {
     /**
      * Processes the command from the messageController
      */
-    private void processCommands() throws IOException {
+    private void processInstructions() throws IOException {
         while (stringController.hasString()) {
-            treatCommand(stringController.poll());
+            treatInstruction(stringController.poll());
         }
     }
 
-    private void treatCommand(String command) throws IOException {
+    private void treatInstruction(String command) throws IOException {
         switch (command) {
-            case "INFO" -> processInfo();
-            case "SHUTDOWN" -> processShutdown();
-            case "SHUTDOWNNOW" -> processShutdownNow();
+            case "INFO" -> processInstructionInfo();
+            case "SHUTDOWN" -> processInstructionShutdown();
+            case "SHUTDOWNNOW" -> processInstructionShutdownNow();
             default -> System.out.println("Unknown command");
         }
     }
@@ -113,11 +124,11 @@ public class ServerChatFusion {
         }).sum();
     }
 
-    private void processInfo() {
+    private void processInstructionInfo() {
         logger.info("There are currently " + nbClientActuallyConnected() + " clients connected to the server");
     }
 
-    private void processShutdown() {
+    private void processInstructionShutdown() {
         logger.info("shutdown...");
         try {
             serverSocketChannel.close();
@@ -126,7 +137,7 @@ public class ServerChatFusion {
         }
     }
 
-    private void processShutdownNow() throws IOException {
+    private void processInstructionShutdownNow() throws IOException {
         logger.info("shutdown now...");
         for (SelectionKey key : selector.keys()) {
             if (key.channel() != serverSocketChannel && key.isValid()) {
@@ -151,7 +162,7 @@ public class ServerChatFusion {
             System.out.println("Starting select");
             try {
                 selector.select(this::treatKey);
-                processCommands();
+                processInstructions();
             } catch (UncheckedIOException tunneled) {
                 throw tunneled.getCause();
             }
@@ -203,24 +214,25 @@ public class ServerChatFusion {
     }
 
 
-//    /**
-//     * Add a text to all connected clients queue
-//     *
-//     * @param cmd - text to add to all connected clients queue
-//     */
-//    private void broadcast(Command cmd) {
-//        Objects.requireNonNull(cmd);
-//        for (SelectionKey key : selector.keys()) {
-//            if (key.channel() == serverSocketChannel) {
-//                continue;
-//            }
-//            //Context context = (Context) key.attachment(); // Safe Cast
-//            if(commandMap.containsKey(cmd.getOpcode())){
-//                commandMap.get(cmd.getOpcode()).handler().accept(cmd);
-//                //context.queueMessage(new PublicMessage( , msg));
-//            }
-//        }
-//    }
+    /**
+     * Add a text to all connected clients queue
+     *
+     * @param cmd - text to add to all connected clients queue
+     */
+    private void broadcast(Command cmd) {
+        Objects.requireNonNull(cmd);
+        for (SelectionKey key : selector.keys()) {
+            if (key.channel() == serverSocketChannel) {
+                continue;
+            }
+            Context context = (Context) key.attachment(); // Safe Cast
+            if(commandMap.containsKey(cmd.getOpcode())){
+                commandMap.get(cmd.getOpcode()).handler().accept(cmd);
+                PublicMessage pm = (PublicMessage) cmd;//safe cast beurk !
+                context.queueCommand(new PublicMessage(pm.getLogin(), pm.getMsg()));
+            }
+        }
+    }
 
 
 
@@ -235,6 +247,9 @@ public class ServerChatFusion {
         private boolean closed = false;
         private State state = State.WAITING_OPCODE;
         private byte currentProcess;
+
+        private final PublicMessageReader pmr = new PublicMessageReader();
+
 
         private Context(ServerChatFusion server, SelectionKey key) {
             this.key = key;
@@ -269,6 +284,9 @@ public class ServerChatFusion {
 
                                 // applies the processing for this order
                                 server.commandMap.get(opCodeEntry.command().getOpcode()).handler().accept(server.commandMap.get(opCodeEntry.command().getOpcode()).command());
+                                server.readers.get(opCodeEntry.command().getOpcode()).accept();
+
+
                                 opCodeEntry.command().reset(); // for next reading
                                 state = Context.State.WAITING_OPCODE;
                                 break;
@@ -287,7 +305,7 @@ public class ServerChatFusion {
         /**
          * Add a text to the text queue, tries to fill bufferOut and updateInterestOps
          *
-         * @param cmd - text to add to the text queue
+         * @param cmd - command to add to the command queue
          */
         public void queueCommand(Command cmd) {
             queue.addLast(cmd);
@@ -296,13 +314,13 @@ public class ServerChatFusion {
         }
 
         /**
-         * Try to fill bufferOut from the text queue
+         * Try to fill bufferOut from the command queue
          */
         private void processOut() {
             while (!queue.isEmpty()) {
                 var command = queue.peekFirst();
                 command.writeIn(bufferOut);
-                if (command.isTotalyWritten()) {
+                if (command.isTotallyWritten()) {
                     queue.removeFirst();
                 }
             }
