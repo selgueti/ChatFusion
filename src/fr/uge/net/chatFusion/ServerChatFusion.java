@@ -1,7 +1,7 @@
 package fr.uge.net.chatFusion;
 
+import fr.uge.net.chatFusion.command.PublicMessage;
 import fr.uge.net.chatFusion.reader.PublicMessageReader;
-import fr.uge.net.chatFusion.reader.Reader;
 import fr.uge.net.chatFusion.util.StringController;
 
 import java.io.IOException;

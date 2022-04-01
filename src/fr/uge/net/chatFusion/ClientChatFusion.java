@@ -1,6 +1,6 @@
 package fr.uge.net.chatFusion;
 
-import fr.uge.net.chatFusion.reader.Reader;
+import fr.uge.net.chatFusion.command.PublicMessage;
 import fr.uge.net.chatFusion.util.StringController;
 
 import java.io.IOException;
@@ -15,7 +15,6 @@ import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Scanner;
-import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 

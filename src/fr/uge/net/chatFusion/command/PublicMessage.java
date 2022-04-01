@@ -1,4 +1,4 @@
-package fr.uge.net.chatFusion;
+package fr.uge.net.chatFusion.command;
 
 import fr.uge.net.chatFusion.reader.IntReader;
 import fr.uge.net.chatFusion.reader.PublicMessageReader;

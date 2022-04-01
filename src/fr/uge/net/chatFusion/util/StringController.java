@@ -1,5 +1,6 @@
 package fr.uge.net.chatFusion.util;
 
+import java.nio.channels.Selector;
 import java.util.ArrayDeque;
 import java.util.Objects;
 import java.util.Queue;
@@ -11,11 +12,12 @@ public class StringController {
     private final Queue<String> stringQueue = new ArrayDeque<>(8);
     private int pendingMessage = 0;
 
-    public void add(String msg) {
+    public void add(String msg,  Selector selector) {
         Objects.requireNonNull(msg);
         synchronized (stringQueue) {
             stringQueue.add(msg);
             pendingMessage++;
+            selector.wakeup();
         }
     }
 

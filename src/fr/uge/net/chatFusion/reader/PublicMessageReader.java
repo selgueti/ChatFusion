@@ -1,6 +1,6 @@
 package fr.uge.net.chatFusion.reader;
 
-import fr.uge.net.chatFusion.PublicMessage;
+import fr.uge.net.chatFusion.command.PublicMessage;
 
 import java.nio.ByteBuffer;
 
