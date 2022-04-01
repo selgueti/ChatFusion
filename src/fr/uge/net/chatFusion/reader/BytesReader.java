@@ -1,15 +1,14 @@
 package fr.uge.net.chatFusion.reader;
 
 import java.nio.ByteBuffer;
-import java.util.List;
 
-public class BytesReader implements Reader<byte[]>{
+public class BytesReader implements Reader<byte[]> {
     private final int size;
     private final ByteBuffer internalBuffer; // write-mode
     private State state = State.WAITING;
 
-    public BytesReader(int size){
-        if(size < 0){
+    public BytesReader(int size) {
+        if (size < 0) {
             throw new IllegalArgumentException("size < 0");
         }
         this.size = size;

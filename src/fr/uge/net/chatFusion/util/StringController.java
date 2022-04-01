@@ -12,7 +12,7 @@ public class StringController {
     private final Queue<String> stringQueue = new ArrayDeque<>(8);
     private int pendingMessage = 0;
 
-    public void add(String msg,  Selector selector) {
+    public void add(String msg, Selector selector) {
         Objects.requireNonNull(msg);
         synchronized (stringQueue) {
             stringQueue.add(msg);
@@ -23,7 +23,7 @@ public class StringController {
 
     /**
      * Assumes that the queue contains at least the given string.
-     * */
+     */
     public String poll() {
         synchronized (stringQueue) {
             String msg = stringQueue.poll();
