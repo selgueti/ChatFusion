@@ -1,6 +1,5 @@
 package fr.uge.net.chatFusion;
 
-import fr.uge.net.chatFusion.command.PublicMessage;
 import fr.uge.net.chatFusion.util.StringController;
 
 import java.io.IOException;
@@ -32,7 +31,6 @@ public class ClientChatFusion {
 
 
     //private final Map<Byte, OpCodeEntry> commandMap = new HashMap<>();
-    private final Map<Byte, OpCodeEntry> commandMap = new HashMap<>();
     //private final Map<Byte, Consumer<?super Command>> commandHandler = new HashMap<>();
 
 
@@ -42,17 +40,17 @@ public class ClientChatFusion {
         this.sc = SocketChannel.open();
         this.selector = Selector.open();
         this.console = new Thread(this::consoleRun);
-        setOpCodeEntries();
+        //setOpCodeEntries();
     }
 
-    private void setOpCodeEntries(){
+    /*private void setOpCodeEntries(){
         commandMap.put((byte)4, new OpCodeEntry(new PublicMessage(), (pm) -> {
             switch (pm){
                 case PublicMessage _pm -> System.out.println(_pm.getLogin() + " : " + _pm.getMsg());
                 case default -> {} // just ignore
             }
         }));
-    }
+    }*/
 
     public static void main(String[] args) throws NumberFormatException, IOException {
         if (args.length != 3) {
@@ -87,8 +85,7 @@ public class ClientChatFusion {
      * @throws InterruptedException - if thread has been interrupted
      */
     private void sendCommand(String msg) throws InterruptedException {
-        stringController.add(msg);
-        selector.wakeup();
+        stringController.add(msg, selector);
         // Cause the exception if the main thread has requested the interrupt
         if (Thread.interrupted()) {
             throw new InterruptedException("Interrupted by main thread");
@@ -101,7 +98,7 @@ public class ClientChatFusion {
     private void processCommands() {
         while (stringController.hasString()) {
             // need to recognize command and call the good constructor
-            uniqueContext.queueCommand(new PublicMessage(login, stringController.poll()));
+            //uniqueContext.queueCommand(new PublicMessage(login, stringController.poll()));
             //uniqueContext.queueCommand(new MessageWriter(login, stringController.poll()));
         }
     }
@@ -179,7 +176,7 @@ public class ClientChatFusion {
         private final SocketChannel sc;
         private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
         private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
-        private final ArrayDeque<Command> queue = new ArrayDeque<>();
+        //private final ArrayDeque<Command> queue = new ArrayDeque<>();
         private boolean closed = false;
         private State state = State.WAITING_OPCODE;
         private byte currentProcess;
@@ -209,7 +206,7 @@ public class ClientChatFusion {
                     state = State.PROCESS_IN;
                 }
                 if(state == State.PROCESS_IN){
-                    if(client.commandMap.containsKey(currentProcess)){
+                    /*if(client.commandMap.containsKey(currentProcess)){
                         // Read the command
                         var readStatus = client.commandMap.get(currentProcess).command().readFrom(bufferIn);
                         switch (readStatus) {
@@ -229,6 +226,7 @@ public class ClientChatFusion {
                                 return;
                         }
                     }
+                     */
                 }
             }
         }
@@ -238,23 +236,23 @@ public class ClientChatFusion {
          *
          * @param cmd - cmd
          */
-        private void queueCommand(Command cmd) {
+        /*private void queueCommand(Command cmd) {
             queue.addLast(cmd);
             processOut();
             updateInterestOps();
-        }
+        }*/
 
         /**
          * Try to fill bufferOut from the message queue
          */
         private void processOut() {
-            while (!queue.isEmpty()) {
+            /*while (!queue.isEmpty()) {
                 var command = queue.peekFirst();
                 command.writeIn(bufferOut);
                 if (command.isTotallyWritten()) {
                     queue.removeFirst();
                 }
-            }
+            }*/
         }
 
         /**

@@ -1,7 +1,6 @@
 package fr.uge.net.chatFusion;
 
-import fr.uge.net.chatFusion.command.PublicMessage;
-import fr.uge.net.chatFusion.reader.PublicMessageReader;
+import fr.uge.net.chatFusion.command.MessagePublicSend;
 import fr.uge.net.chatFusion.util.StringController;
 
 import java.io.IOException;
@@ -23,14 +22,14 @@ public class ServerChatFusion {
     private final String name;
     private final Thread console;
     private final StringController stringController = new StringController();
-    private final Map<Byte, OpCodeEntry> commandMap = new HashMap<>();
+    //private final Map<Byte, OpCodeEntry> commandMap = new HashMap<>();
 
     private final Map<Byte, Consumer<ByteBuffer>> readers = new HashMap<>();
-    private final PublicMessageReader publicMessageReader = new PublicMessageReader();
+    //private final PublicMessageReader publicMessageReader = new PublicMessageReader();
 
-    private void setOpCodeEntries(){
+    /*private void setOpCodeEntries(){
         readers.put((byte)4, publicMessageReader::process);
-    }
+    }*/
 
     public ServerChatFusion(String name, int port, InetSocketAddress sfmAddress) throws IOException {
         serverSocketChannel = ServerSocketChannel.open();
@@ -39,7 +38,7 @@ public class ServerChatFusion {
         this.sfmAddress = sfmAddress;
         this.name = name;
         this.console = new Thread(this::consoleRun);
-        setOpCodeEntries();
+        //setOpCodeEntries();
     }
 
     public static void main(String[] args) throws NumberFormatException, IOException {
@@ -88,7 +87,7 @@ public class ServerChatFusion {
      * @throws InterruptedException - if thread has been interrupted
      */
     private void sendInstruction(String command) throws InterruptedException {
-        stringController.add(command);
+        //stringController.add(command);
         selector.wakeup();
         // Cause the exception if the main thread has requested the interrupt
         if (Thread.interrupted()) {
@@ -219,7 +218,7 @@ public class ServerChatFusion {
      *
      * @param cmd - text to add to all connected clients queue
      */
-    private void broadcast(Command cmd) {
+    /*private void broadcast(Command cmd) {
         Objects.requireNonNull(cmd);
         for (SelectionKey key : selector.keys()) {
             if (key.channel() == serverSocketChannel) {
@@ -232,7 +231,7 @@ public class ServerChatFusion {
                 context.queueCommand(new PublicMessage(pm.getLogin(), pm.getMsg()));
             }
         }
-    }
+    }*/
 
 
 
@@ -241,14 +240,14 @@ public class ServerChatFusion {
         private final SocketChannel sc;
         private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
         private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
-        private final ArrayDeque<Command> queue = new ArrayDeque<>();
+        private final ArrayDeque<MessagePublicSend> queue = new ArrayDeque<>();
         private final ServerChatFusion server; // we could also have Context as an instance class, which would naturally
         // give access to ServerChatInt.this
         private boolean closed = false;
         private State state = State.WAITING_OPCODE;
         private byte currentProcess;
 
-        private final PublicMessageReader pmr = new PublicMessageReader();
+        //private final PublicMessageReader pmr = new PublicMessageReader();
 
 
         private Context(ServerChatFusion server, SelectionKey key) {
@@ -275,7 +274,7 @@ public class ServerChatFusion {
                     state = Context.State.PROCESS_IN;
                 }
                 if(state == Context.State.PROCESS_IN){
-                    if(server.commandMap.containsKey(currentProcess)){
+                    /*if(server.commandMap.containsKey(currentProcess)){
                         // Read the command
                         var readStatus = server.commandMap.get(currentProcess).command().readFrom(bufferIn);
                         switch (readStatus) {
@@ -297,7 +296,7 @@ public class ServerChatFusion {
                                 //silentlyClose(); // not for a client, need to think about this
                                 return;
                         }
-                    }
+                    }*/
                 }
             }
         }
@@ -307,11 +306,11 @@ public class ServerChatFusion {
          *
          * @param cmd - command to add to the command queue
          */
-        public void queueCommand(Command cmd) {
+        /*public void queueCommand(Command cmd) {
             queue.addLast(cmd);
             processOut();
             updateInterestOps();
-        }
+        }*/
 
         /**
          * Try to fill bufferOut from the command queue
@@ -319,10 +318,10 @@ public class ServerChatFusion {
         private void processOut() {
             while (!queue.isEmpty()) {
                 var command = queue.peekFirst();
-                command.writeIn(bufferOut);
+                /*command.writeIn(bufferOut);
                 if (command.isTotallyWritten()) {
                     queue.removeFirst();
-                }
+                }*/
             }
         }
 

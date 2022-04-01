@@ -1,18 +1,19 @@
 package fr.uge.net.chatFusion.reader;
 
-import fr.uge.net.chatFusion.command.PublicMessage;
+import fr.uge.net.chatFusion.command.LoginAnonymous;
 
 import java.nio.ByteBuffer;
 
-public class PublicMessageReader implements Reader<PublicMessage> {
-
+public class LoginAnonymousReader implements Reader<LoginAnonymous> {
     private final StringReader stringReader = new StringReader();
     private State state = State.WAITING_LOGIN;
     private String login;
-    private String text;
 
     @Override
     public ProcessStatus process(ByteBuffer bb) {
+        if (state == State.DONE || state == State.ERROR) {
+            throw new IllegalStateException();
+        }
         if (state == State.WAITING_LOGIN) {
             switch (stringReader.process(bb)) {
                 case REFILL -> {
@@ -24,34 +25,19 @@ public class PublicMessageReader implements Reader<PublicMessage> {
                 }
                 case DONE -> {
                     login = stringReader.get();
-                    state = State.WAITING_TEXT;
+                    state = State.DONE;
                 }
-            }
-        }
-
-        stringReader.reset();
-        switch (stringReader.process(bb)) {
-            case REFILL -> {
-                return ProcessStatus.REFILL;
-            }
-            case ERROR -> {
-                state = State.ERROR;
-                return ProcessStatus.ERROR;
-            }
-            case DONE -> {
-                text = stringReader.get();
-                state = State.DONE;
             }
         }
         return ProcessStatus.DONE;
     }
 
     @Override
-    public PublicMessage get() {
+    public LoginAnonymous get() {
         if (state != State.DONE) {
             throw new IllegalStateException();
         }
-        return new PublicMessage(login, text);
+        return new LoginAnonymous(login);
     }
 
     @Override
@@ -59,10 +45,9 @@ public class PublicMessageReader implements Reader<PublicMessage> {
         stringReader.reset();
         state = State.WAITING_LOGIN;
         login = null;
-        text = null;
     }
 
     private enum State {
-        DONE, WAITING_LOGIN, WAITING_TEXT, ERROR
+        DONE, WAITING_LOGIN, ERROR
     }
 }
