@@ -1,11 +1,13 @@
 package fr.uge.net.chatFusion.util;
 
 import java.nio.ByteBuffer;
+import java.util.Objects;
 
 public class Writer {
     private final ByteBuffer internalBuffer;
 
     public Writer(ByteBuffer internalBuffer) {
+        Objects.requireNonNull(internalBuffer);
         this.internalBuffer = internalBuffer;
     }
 
