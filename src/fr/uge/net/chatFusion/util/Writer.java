@@ -4,10 +4,10 @@ import java.nio.ByteBuffer;
 import java.util.Objects;
 
 public class Writer {
-    private final ByteBuffer internalBuffer;
+    private ByteBuffer internalBuffer;
 
     public Writer(ByteBuffer internalBuffer) {
-        Objects.requireNonNull(internalBuffer);
+        //Objects.requireNonNull(internalBuffer);
         this.internalBuffer = internalBuffer;
     }
 
@@ -16,6 +16,7 @@ public class Writer {
      * after the call
      */
     public void fillBuffer(ByteBuffer buffer) {
+        Objects.requireNonNull(buffer);
         if (internalBuffer.position() == 0) {
             return;
         }
@@ -36,5 +37,26 @@ public class Writer {
      */
     public boolean isDone() {
         return internalBuffer.position() == 0;
+    }
+
+    /**
+     * Return true if precedent command will send
+     * */
+    public boolean isAcceptingNewCommand(){
+        return internalBuffer == null;
+    }
+
+    /**
+     * Assume null internalBuffer to reset Writer
+     * */
+    public void setInternalBuffer(ByteBuffer internalBuffer){
+        internalBuffer = internalBuffer;
+    }
+
+    /**
+     * Set internalBuffer to null
+     * */
+    public void reset(){
+        internalBuffer = null;
     }
 }
