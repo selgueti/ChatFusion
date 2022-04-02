@@ -1,7 +1,8 @@
 package fr.uge.net.chatFusion;
 
-import fr.uge.net.chatFusion.command.MessagePublicSend;
+import fr.uge.net.chatFusion.command.SocketAddressToken;
 import fr.uge.net.chatFusion.util.StringController;
+import fr.uge.net.chatFusion.util.Writer;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -9,7 +10,6 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
 import java.util.*;
-import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -22,14 +22,9 @@ public class ServerChatFusion {
     private final String name;
     private final Thread console;
     private final StringController stringController = new StringController();
-    //private final Map<Byte, OpCodeEntry> commandMap = new HashMap<>();
+    private Map<String, SocketAddressToken> routes = new HashMap<>();
+    private final Map<String, SocketAddressToken> alreadyMerged = new HashMap<>();
 
-    private final Map<Byte, Consumer<ByteBuffer>> readers = new HashMap<>();
-    //private final PublicMessageReader publicMessageReader = new PublicMessageReader();
-
-    /*private void setOpCodeEntries(){
-        readers.put((byte)4, publicMessageReader::process);
-    }*/
 
     public ServerChatFusion(String name, int port, InetSocketAddress sfmAddress) throws IOException {
         serverSocketChannel = ServerSocketChannel.open();
@@ -38,7 +33,6 @@ public class ServerChatFusion {
         this.sfmAddress = sfmAddress;
         this.name = name;
         this.console = new Thread(this::consoleRun);
-        //setOpCodeEntries();
     }
 
     public static void main(String[] args) throws NumberFormatException, IOException {
@@ -88,7 +82,6 @@ public class ServerChatFusion {
      */
     private void sendInstruction(String instruction) throws InterruptedException {
         stringController.add(instruction, selector);
-        //selector.wakeup();
         // Cause the exception if the main thread has requested the interrupt
         if (Thread.interrupted()) {
             throw new InterruptedException("Interrupted by main thread");
@@ -109,7 +102,7 @@ public class ServerChatFusion {
             case "INFO" -> processInstructionInfo();
             case "SHUTDOWN" -> processInstructionShutdown();
             case "SHUTDOWNNOW" -> processInstructionShutdownNow();
-            default -> System.out.println("Unknown command");
+            default -> System.out.println("Unknown command"); // TODO need to check ask to fusion
         }
     }
 
@@ -154,7 +147,7 @@ public class ServerChatFusion {
         serverSocketChannel.configureBlocking(false);
         serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
 
-        // TODO connect to SFM and send the FUSION_REGISTER_SERVER(8) command
+        // TODO connect to SFM and send FUSION_REGISTER_SERVER(8) command
 
         while (!Thread.interrupted()) {
             Helpers.printKeys(selector); // for debug
@@ -218,47 +211,40 @@ public class ServerChatFusion {
      *
      * @param cmd - text to add to all connected clients queue
      */
-    /*private void broadcast(Command cmd) {
+    private void broadcast(ByteBuffer cmd) {
         Objects.requireNonNull(cmd);
         for (SelectionKey key : selector.keys()) {
             if (key.channel() == serverSocketChannel) {
                 continue;
             }
             Context context = (Context) key.attachment(); // Safe Cast
-            if(commandMap.containsKey(cmd.getOpcode())){
-                commandMap.get(cmd.getOpcode()).handler().accept(cmd);
-                PublicMessage pm = (PublicMessage) cmd;//safe cast beurk !
-                context.queueCommand(new PublicMessage(pm.getLogin(), pm.getMsg()));
-            }
+            // TODO check server context / client context
+            context.queueCommand(cmd.duplicate()); // duplicate allows us not to copy the data
         }
-    }*/
+    }
 
 
 
     static private class Context {
         private final SelectionKey key;
         private final SocketChannel sc;
-        private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
-        private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
-        private final ArrayDeque<MessagePublicSend> queue = new ArrayDeque<>();
         private final ServerChatFusion server; // we could also have Context as an instance class, which would naturally
         // give access to ServerChatInt.this
         private boolean closed = false;
-        private State state = State.WAITING_OPCODE;
+
+        private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
+        private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
+        private final ArrayDeque<ByteBuffer> queueCommand = new ArrayDeque<>();
+
         private byte currentProcess;
-
-        //private final PublicMessageReader pmr = new PublicMessageReader();
-
+        private Writer writer = null;
+        private ReadingState readingState = ReadingState.WAITING_OPCODE;
+        private AuthenticationState authenticationState = AuthenticationState.UNREGISTERED;
 
         private Context(ServerChatFusion server, SelectionKey key) {
             this.key = key;
             this.sc = (SocketChannel) key.channel();
             this.server = server;
-        }
-
-        enum State {
-            WAITING_OPCODE,
-            PROCESS_IN
         }
 
         /**
@@ -269,34 +255,13 @@ public class ServerChatFusion {
          */
         private void processIn() {
             for (; ; ) {
-                if(state == Context.State.WAITING_OPCODE && bufferIn.position() != 0){
+                if (readingState == ReadingState.WAITING_OPCODE && bufferIn.position() != 0) {
                     currentProcess = bufferIn.get();
-                    state = Context.State.PROCESS_IN;
+                    readingState = ReadingState.PROCESS_IN;
                 }
-                if(state == Context.State.PROCESS_IN){
-                    /*if(server.commandMap.containsKey(currentProcess)){
-                        // Read the command
-                        var readStatus = server.commandMap.get(currentProcess).command().readFrom(bufferIn);
-                        switch (readStatus) {
-                            case DONE:
-                                var opCodeEntry = server.commandMap.get(currentProcess);
 
-                                // applies the processing for this order
-                                server.commandMap.get(opCodeEntry.command().getOpcode()).handler().accept(server.commandMap.get(opCodeEntry.command().getOpcode()).command());
-                                server.readers.get(opCodeEntry.command().getOpcode()).accept();
-
-
-                                opCodeEntry.command().reset(); // for next reading
-                                state = Context.State.WAITING_OPCODE;
-                                break;
-                            case REFILL_INPUT:
-                                return;
-
-                            case ERROR:
-                                //silentlyClose(); // not for a client, need to think about this
-                                return;
-                        }
-                    }*/
+                if (readingState == ReadingState.PROCESS_IN) {
+                    // TODO treat command
                 }
             }
         }
@@ -306,22 +271,26 @@ public class ServerChatFusion {
          *
          * @param cmd - command to add to the command queue
          */
-        /*public void queueCommand(Command cmd) {
-            queue.addLast(cmd);
+        public void queueCommand(ByteBuffer cmd) {
+            queueCommand.addLast(cmd);
             processOut();
             updateInterestOps();
-        }*/
+        }
 
         /**
          * Try to fill bufferOut from the command queue
          */
         private void processOut() {
-            while (!queue.isEmpty()) {
-                var command = queue.peekFirst();
-                /*command.writeIn(bufferOut);
-                if (command.isTotallyWritten()) {
-                    queue.removeFirst();
-                }*/
+            while (!queueCommand.isEmpty()) {
+                if (writer == null) {
+                    var command = queueCommand.peekFirst();
+                    writer = new Writer(command);
+                }
+                writer.fillBuffer(bufferOut);
+                if (writer.isDone()) {
+                    queueCommand.removeFirst();
+                    writer = null;
+                }
             }
         }
 
@@ -389,6 +358,15 @@ public class ServerChatFusion {
             bufferOut.compact();
             processOut();
             updateInterestOps();
+        }
+
+        enum ReadingState {
+            WAITING_OPCODE,
+            PROCESS_IN,
+        }
+
+        private enum AuthenticationState {
+            UNREGISTERED, SERVER_REGISTERED, CLIENT_LOGGED, ERROR
         }
     }
 }

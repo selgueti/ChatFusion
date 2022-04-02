@@ -114,8 +114,17 @@ public class ClientChatFusion {
         uniqueContext = new Context(key, this);
         key.attach(uniqueContext);
         sc.connect(serverAddress);
-        console.start();
 
+        // TODO while not logged, don't start console
+        // TODO need to send LOGIN_ANONYMOUS(0) command
+        // need to send LOGIN_ANONYMOUS(0) ?
+        //while(!uniqueContext.isLogged()){}
+
+        uniqueContext.queueCommand(new LoginAnonymous(login).toBuffer());
+        // need to read response to set State == State.LOGGED and continue launch
+        // or retry new authentication..
+        
+        console.start();
         while (!Thread.interrupted()) {
             try {
                 selector.select(this::treatKey);
@@ -144,9 +153,9 @@ public class ClientChatFusion {
             // lambda call in select requires to tunnel IOException
             logger.warning(serverAddress.getHostString() + ":" + serverAddress.getPort() + " is unreachable");
             silentlyClose(key);
-            console.interrupt();
+            //console.interrupt();
             Thread.currentThread().interrupt();
-            //throw new UncheckedIOException(ioe);
+            throw new UncheckedIOException(ioe);
         }
     }
 
@@ -159,20 +168,97 @@ public class ClientChatFusion {
         }
     }
 
+    private void processInUnregistered(Context context) {
+        if (context.readingState == Context.ReadingState.WAITING_OPCODE) {
+            if (Reader.ProcessStatus.DONE == context.opcodeReader.process(context.bufferIn)) {
+                context.currentCommand = context.opcodeReader.get()[0];
+                context.opcodeReader.reset();
+                context.readingState = Context.ReadingState.PROCESS_IN;
+            }
+        }
+        if (context.authenticationState == Context.AuthenticationState.UNREGISTERED && context.readingState == Context.ReadingState.PROCESS_IN && context.currentCommand == 2) {
+            switch (context.loginAcceptedReader.process(context.bufferIn)) {
+                case REFILL -> {
+                    return;
+                }
+                case ERROR -> context.authenticationState = Context.AuthenticationState.ERROR;
+                case DONE -> {
+                    serverName = context.loginAcceptedReader.get().serverName();
+                    context.loginAcceptedReader.reset();
+                    context.authenticationState = Context.AuthenticationState.LOGGED;
+                    context.readingState = Context.ReadingState.WAITING_OPCODE;
+                }
+            }
+        }
+        if (context.authenticationState == Context.AuthenticationState.UNREGISTERED && context.readingState == Context.ReadingState.PROCESS_IN && context.currentCommand == 3) {
+            logger.info("Username already used, please chose another one");
+            context.silentlyClose(); // TODO make sure scanner and main thread are closed to
+            console.interrupt(); // TODO probably block into scanner, think about this
+        }
+    }
+
+    private void processInLogged(Context context) {
+        if (context.readingState == Context.ReadingState.WAITING_OPCODE) {
+            if (Reader.ProcessStatus.DONE == context.opcodeReader.process(context.bufferIn)) {
+                context.currentCommand = context.opcodeReader.get()[0];
+                context.opcodeReader.reset();
+                context.readingState = Context.ReadingState.PROCESS_IN;
+            }
+        }
+        if (context.readingState == Context.ReadingState.PROCESS_IN) {
+            switch (context.currentCommand) {
+                case 4 -> {
+                    switch (context.messagePublicSendReader.process(context.bufferIn)) {
+                        case REFILL -> {
+                            return;
+                        }
+                        case ERROR -> context.readingState = Context.ReadingState.WAITING_OPCODE;
+                        case DONE -> {
+                            var messagePublicSend = context.messagePublicSendReader.get();
+                            context.messagePublicSendReader.reset();
+                            System.out.println(messagePublicSend.loginSrc() + "@" + messagePublicSend.serverSrc() + " : " + messagePublicSend.msg());
+                        }
+                    }
+                }
+
+                case 5 -> {
+                    // TODO log the MESSAGE_PUBLIC_TRANSMIT receiving
+                }
+                case 6 -> {
+                    switch (context.messagePrivateReader.process(context.bufferIn)) {
+                        case REFILL -> {
+                        }
+                        case ERROR -> context.readingState = Context.ReadingState.WAITING_OPCODE;
+                        case DONE -> {
+                            var messagePrivate = context.messagePrivateReader.get();
+                            context.messagePrivateReader.reset();
+                            System.out.println(messagePrivate.loginSrc() + "@" + messagePrivate.serverSrc() + " : " + messagePrivate.msg());
+                        }
+                    }
+                }
+                case 7 -> {
+                    // TODO build file + log file receiving
+                }
+                case default -> System.out.println("OPCODE unknown or not expected, drop command");
+            }
+            context.readingState = Context.ReadingState.WAITING_OPCODE;
+        }
+    }
+
     static private class Context {
         private final SelectionKey key;
         private final SocketChannel sc;
+        private final ClientChatFusion client;
         private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
         private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
-        private final ArrayDeque<ByteBuffer> queue = new ArrayDeque<>();
-        private Writer writer = null;
+        private final ArrayDeque<ByteBuffer> queueCommand = new ArrayDeque<>();
         private final BytesReader opcodeReader = new BytesReader(1);
-        private final ClientChatFusion client;
         private final LoginAcceptedReader loginAcceptedReader = new LoginAcceptedReader();
         private final MessagePublicSendReader messagePublicSendReader = new MessagePublicSendReader();
         private final MessagePrivateReader messagePrivateReader = new MessagePrivateReader();
-
         private boolean closed = false;
+        private Writer writer = null;
+
         private byte currentCommand;
         private ReadingState readingState = ReadingState.WAITING_OPCODE;
         private AuthenticationState authenticationState = AuthenticationState.UNREGISTERED;
@@ -181,9 +267,6 @@ public class ClientChatFusion {
             this.key = key;
             this.sc = (SocketChannel) key.channel();
             this.client = client;
-
-            // need to send LOGIN_ANONYMOUS(0) ?
-            queueCommand(new LoginAnonymous(client.login).toBuffer());
         }
 
         /**
@@ -194,73 +277,12 @@ public class ClientChatFusion {
          */
         private void processIn() {
             for (; ; ) {
-                if (readingState == ReadingState.WAITING_OPCODE) {
-                    if (Reader.ProcessStatus.DONE == opcodeReader.process(bufferIn)) {
-                        currentCommand = opcodeReader.get()[0];
-                        opcodeReader.reset();
-                        readingState = ReadingState.PROCESS_IN;
+                switch (authenticationState) {
+                    case ERROR -> {
+                        return;
                     }
-                }
-
-                if (authenticationState == AuthenticationState.UNREGISTERED && readingState == ReadingState.PROCESS_IN && currentCommand == 2) {
-                    switch (loginAcceptedReader.process(bufferIn)) {
-                        case REFILL -> {
-                            return;
-                        }
-                        case ERROR -> authenticationState = AuthenticationState.ERROR;
-                        case DONE -> {
-                            client.serverName = loginAcceptedReader.get().serverName();
-                            loginAcceptedReader.reset();
-                            authenticationState = AuthenticationState.LOGGED;
-                            readingState = ReadingState.WAITING_OPCODE;
-                        }
-                    }
-                }
-
-                if (authenticationState == AuthenticationState.UNREGISTERED && readingState == ReadingState.PROCESS_IN && currentCommand == 3) {
-                    logger.info("Username already used, please chose another one");
-                    silentlyClose(); // TODO make sure scanner and main thread are closed to
-                    client.console.interrupt(); // TODO probably block into scanner, think about this
-                }
-
-                if (readingState == ReadingState.PROCESS_IN) {
-                    switch (currentCommand) {
-                        case 4 -> {
-                            switch (messagePublicSendReader.process(bufferIn)) {
-                                case REFILL -> {
-                                    return;
-                                }
-                                case ERROR -> readingState = ReadingState.WAITING_OPCODE;
-                                case DONE -> {
-                                    var messagePublicSend = messagePublicSendReader.get();
-                                    messagePublicSendReader.reset();
-                                    System.out.println(messagePublicSend.loginSrc() + "@" + messagePublicSend.serverSrc() + " : " + messagePublicSend.msg());
-                                    readingState = ReadingState.WAITING_OPCODE;
-                                }
-                            }
-                        }
-
-                        case 5 -> {
-                            // TODO log the MESSAGE_PUBLIC_TRANSMIT receiving
-                        }
-                        case 6 -> {
-                            switch (messagePrivateReader.process(bufferIn)) {
-                                case REFILL -> {
-                                }
-                                case ERROR -> readingState = ReadingState.WAITING_OPCODE;
-                                case DONE -> {
-                                    var messagePrivate = messagePrivateReader.get();
-                                    messagePrivateReader.reset();
-                                    System.out.println(messagePrivate.loginSrc() + "@" + messagePrivate.serverSrc() + " : " + messagePrivate.msg());
-                                    readingState = ReadingState.WAITING_OPCODE;
-                                }
-                            }
-                        }
-                        case 7 -> {
-                            // TODO build file + log file receiving
-                        }
-                        case default -> System.out.println("processIn drop paquet....");
-                    }
+                    case UNREGISTERED -> client.processInUnregistered(this);
+                    case LOGGED -> client.processInLogged(this);
                 }
             }
         }
@@ -271,7 +293,7 @@ public class ClientChatFusion {
          * @param cmd - cmd
          */
         private void queueCommand(ByteBuffer cmd) {
-            queue.addLast(cmd);
+            queueCommand.addLast(cmd);
             processOut();
             updateInterestOps();
         }
@@ -280,17 +302,15 @@ public class ClientChatFusion {
          * Try to fill bufferOut from the message queue
          */
         private void processOut() {
-            while (!queue.isEmpty()) {
+            while (!queueCommand.isEmpty()) {
                 if (writer == null) {
-                    var command = queue.peekFirst();
+                    var command = queueCommand.peekFirst();
                     writer = new Writer(command);
-                    //writer.setInternalBuffer(command);
                 }
                 writer.fillBuffer(bufferOut);
                 if (writer.isDone()) {
-                    queue.removeFirst();
+                    queueCommand.removeFirst();
                     writer = null;
-                    //writer.reset();
                 }
             }
         }
