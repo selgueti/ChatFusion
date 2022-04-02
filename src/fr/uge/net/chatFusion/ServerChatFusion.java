@@ -83,12 +83,12 @@ public class ServerChatFusion {
     /**
      * Send instructions to the selector via messageController and wake it up
      *
-     * @param command - command
+     * @param instruction - user input
      * @throws InterruptedException - if thread has been interrupted
      */
-    private void sendInstruction(String command) throws InterruptedException {
-        //stringController.add(command);
-        selector.wakeup();
+    private void sendInstruction(String instruction) throws InterruptedException {
+        stringController.add(instruction, selector);
+        //selector.wakeup();
         // Cause the exception if the main thread has requested the interrupt
         if (Thread.interrupted()) {
             throw new InterruptedException("Interrupted by main thread");

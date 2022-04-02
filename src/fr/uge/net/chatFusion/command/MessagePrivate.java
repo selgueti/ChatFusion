@@ -42,14 +42,14 @@ public record MessagePrivate(String serverSrc, String loginSrc, String serverDst
                 + bbServerDst.remaining()
                 + bbLoginDst.remaining()
                 + bbMsg.remaining()
-                + 5 * Long.BYTES + Byte.BYTES);
+                + 5 * Integer.BYTES + Byte.BYTES);
 
         buffer.put(OPCODE)
-                .putLong(bbServerSrc.remaining()).put(bbServerSrc)
-                .putLong(bbLoginSrc.remaining()).put(bbLoginSrc)
-                .putLong(bbServerDst.remaining()).put(bbServerDst)
-                .putLong(bbLoginDst.remaining()).put(bbLoginDst)
-                .putLong(bbMsg.remaining()).put(bbMsg);
+                .putInt(bbServerSrc.remaining()).put(bbServerSrc)
+                .putInt(bbLoginSrc.remaining()).put(bbLoginSrc)
+                .putInt(bbServerDst.remaining()).put(bbServerDst)
+                .putInt(bbLoginDst.remaining()).put(bbLoginDst)
+                .putInt(bbMsg.remaining()).put(bbMsg);
         return buffer;
     }
 }

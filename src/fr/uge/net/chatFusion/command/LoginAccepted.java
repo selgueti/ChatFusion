@@ -19,8 +19,8 @@ public record LoginAccepted(String serverName) {
 
     public ByteBuffer toBuffer() {
         ByteBuffer bbServerName = UTF8.encode(serverName);
-        ByteBuffer buffer = ByteBuffer.allocate(bbServerName.remaining() + Long.BYTES + Byte.BYTES);
-        buffer.put(OPCODE).putLong(bbServerName.remaining()).put(bbServerName);
+        ByteBuffer buffer = ByteBuffer.allocate(bbServerName.remaining() + Integer.BYTES + Byte.BYTES);
+        buffer.put(OPCODE).putInt(bbServerName.remaining()).put(bbServerName);
         return buffer;
     }
 }

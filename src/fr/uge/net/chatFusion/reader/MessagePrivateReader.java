@@ -30,8 +30,8 @@ public class MessagePrivateReader implements Reader<MessagePrivate> {
                 }
                 case DONE -> {
                     serverSrc = stringReader.get();
-                    state = State.WAITING_LOGIN_SRC;
                     stringReader.reset();
+                    state = State.WAITING_LOGIN_SRC;
                 }
             }
         }
@@ -47,8 +47,8 @@ public class MessagePrivateReader implements Reader<MessagePrivate> {
                 }
                 case DONE -> {
                     loginSrc = stringReader.get();
-                    state = State.WAITING_SERVER_DST;
                     stringReader.reset();
+                    state = State.WAITING_SERVER_DST;
                 }
             }
         }
@@ -64,8 +64,8 @@ public class MessagePrivateReader implements Reader<MessagePrivate> {
                 }
                 case DONE -> {
                     serverDst = stringReader.get();
-                    state = State.WAITING_LOGIN_DST;
                     stringReader.reset();
+                    state = State.WAITING_LOGIN_DST;
                 }
             }
         }
@@ -81,8 +81,8 @@ public class MessagePrivateReader implements Reader<MessagePrivate> {
                 }
                 case DONE -> {
                     loginDst = stringReader.get();
-                    state = State.WAITING_MSG;
                     stringReader.reset();
+                    state = State.WAITING_MSG;
                 }
             }
         }

@@ -32,14 +32,15 @@ public record FusionTableRouteResult(int nbMembers, Map<String, SocketAddressTok
         for (var servName : routes.keySet()) {
             var bbServName = UTF8.encode(servName);
             var bbSocketAddr = routes.get(servName).toBuffer();
-            if (Long.BYTES + bbServName.remaining() + bbSocketAddr.remaining() > buffer.remaining()) {
+            if (Integer.BYTES + bbServName.remaining() + bbSocketAddr.remaining() > buffer.remaining()) {
+                //need to grow buffer
                 bufferSize *= 2;
                 var tmpBuffer = ByteBuffer.allocate(bufferSize);
                 buffer.flip();
                 tmpBuffer.put(buffer);
                 buffer = tmpBuffer;
             }
-            buffer.putLong(bbServName.remaining()).put(bbServName)
+            buffer.putInt(bbServName.remaining()).put(bbServName)
                     .put(bbSocketAddr);
         }
         return buffer;

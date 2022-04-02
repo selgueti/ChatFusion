@@ -54,13 +54,8 @@ public class SocketAddressTokenReader implements Reader<SocketAddressToken> {
                 }
                 case DONE -> {
                     address = addressReader.get();
-                    if (address.length != 4 && address.length != 16) {
-                        state = State.ERROR;
-                        return ProcessStatus.ERROR;
-                    }
                     if ((address.length == 4 && version == 6) || (address.length == 16 && version == 4)) {
-                        state = State.ERROR;
-                        return ProcessStatus.ERROR;
+                        throw new AssertionError("bad initialize addressReader");
                     }
                     state = State.WAITING_PORT;
                 }
@@ -98,10 +93,10 @@ public class SocketAddressTokenReader implements Reader<SocketAddressToken> {
         versionReader.reset();
         addressReader = null;
         portReader.reset();
+        state = State.WAITING_VERSION;
         version = 0;
         address = null;
         port = 0;
-        state = State.WAITING_VERSION;
     }
 
     private enum State {

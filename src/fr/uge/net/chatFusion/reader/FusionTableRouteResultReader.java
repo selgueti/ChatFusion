@@ -100,6 +100,8 @@ public class FusionTableRouteResultReader implements Reader<FusionTableRouteResu
         state = State.WAITING_NB_MEMBERS;
         routes = new HashMap<>();
         nbMembers = 0;
+        currentServName = null;
+        nbMembersRegistered = 0;
     }
 
     private enum State {

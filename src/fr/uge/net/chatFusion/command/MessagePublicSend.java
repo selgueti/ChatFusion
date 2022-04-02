@@ -31,12 +31,12 @@ public record MessagePublicSend(String serverSrc, String loginSrc, String msg) {
         ByteBuffer buffer = ByteBuffer.allocate(bbServerName.remaining()
                 + bbLoginSrc.remaining()
                 + bbMsg.remaining()
-                + 3 * Long.BYTES + Byte.BYTES);
+                + 3 * Integer.BYTES + Byte.BYTES);
 
         buffer.put(OPCODE)
-                .putLong(bbServerName.remaining()).put(bbServerName)
-                .putLong(bbLoginSrc.remaining()).put(bbLoginSrc)
-                .putLong(bbMsg.remaining()).put(bbMsg);
+                .putInt(bbServerName.remaining()).put(bbServerName)
+                .putInt(bbLoginSrc.remaining()).put(bbLoginSrc)
+                .putInt(bbMsg.remaining()).put(bbMsg);
         return buffer;
     }
 }

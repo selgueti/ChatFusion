@@ -18,8 +18,8 @@ public record LoginAnonymous(String login) {
 
     public ByteBuffer toBuffer(){
         ByteBuffer bbLogin = UTF8.encode(login);
-        ByteBuffer buffer = ByteBuffer.allocate(bbLogin.remaining() + Long.BYTES + Byte.BYTES);
-        buffer.put(OPCODE).putLong(bbLogin.remaining()).put(bbLogin);
+        ByteBuffer buffer = ByteBuffer.allocate(bbLogin.remaining() + Integer.BYTES + Byte.BYTES);
+        buffer.put(OPCODE).putInt(bbLogin.remaining()).put(bbLogin);
         return buffer;
     }
 }

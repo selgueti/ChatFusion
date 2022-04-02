@@ -28,8 +28,8 @@ public class MessagePublicSendReader implements Reader<MessagePublicSend> {
                 }
                 case DONE -> {
                     serverSrc = stringReader.get();
-                    state = State.WAITING_LOGIN_SRC;
                     stringReader.reset();
+                    state = State.WAITING_LOGIN_SRC;
                 }
             }
         }
@@ -45,8 +45,8 @@ public class MessagePublicSendReader implements Reader<MessagePublicSend> {
                 }
                 case DONE -> {
                     loginSrc = stringReader.get();
-                    state = State.WAITING_MSG;
                     stringReader.reset();
+                    state = State.WAITING_MSG;
                 }
             }
         }
