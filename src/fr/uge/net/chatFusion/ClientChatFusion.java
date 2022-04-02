@@ -241,7 +241,7 @@ public class ClientChatFusion {
                         }
 
                         case 5 -> {
-                            // TODO
+                            // TODO log the MESSAGE_PUBLIC_TRANSMIT receiving
                         }
                         case 6 -> {
                             switch (messagePrivateReader.process(bufferIn)) {
@@ -257,7 +257,7 @@ public class ClientChatFusion {
                             }
                         }
                         case 7 -> {
-                            // TODO
+                            // TODO build file + log file receiving
                         }
                         case default -> System.out.println("processIn drop paquet....");
                     }
