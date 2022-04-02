@@ -22,9 +22,9 @@ public class ServerChatFusion {
     private final String name;
     private final Thread console;
     private final StringController stringController = new StringController();
-    private Map<String, SocketAddressToken> routes = new HashMap<>();
     private final Map<String, SocketAddressToken> alreadyMerged = new HashMap<>();
-
+    private Map<String, SocketAddressToken> routes = new HashMap<>();
+    private SFMRegistrationState registrationState = SFMRegistrationState.UNREGISTERED;
 
     public ServerChatFusion(String name, int port, InetSocketAddress sfmAddress) throws IOException {
         serverSocketChannel = ServerSocketChannel.open();
@@ -140,7 +140,6 @@ public class ServerChatFusion {
         Thread.currentThread().interrupt();
     }
 
-
     public void launch() throws IOException {
         System.out.println(this);
         console.start();
@@ -205,7 +204,6 @@ public class ServerChatFusion {
         }
     }
 
-
     /**
      * Add a text to all connected clients queue
      *
@@ -223,19 +221,28 @@ public class ServerChatFusion {
         }
     }
 
+    private void processInServerRegistered(Context context) {
+    }
 
+    private void processInCLientLogged(Context context) {
+    }
+
+    private void processInUnregistered(Context context) {
+    }
+
+    private enum SFMRegistrationState {
+        LOGGED, UNREGISTERED
+    }
 
     static private class Context {
         private final SelectionKey key;
         private final SocketChannel sc;
         private final ServerChatFusion server; // we could also have Context as an instance class, which would naturally
-        // give access to ServerChatInt.this
-        private boolean closed = false;
-
         private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
         private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
         private final ArrayDeque<ByteBuffer> queueCommand = new ArrayDeque<>();
-
+        // give access to ServerChatInt.this
+        private boolean closed = false;
         private byte currentProcess;
         private Writer writer = null;
         private ReadingState readingState = ReadingState.WAITING_OPCODE;
@@ -255,13 +262,14 @@ public class ServerChatFusion {
          */
         private void processIn() {
             for (; ; ) {
-                if (readingState == ReadingState.WAITING_OPCODE && bufferIn.position() != 0) {
-                    currentProcess = bufferIn.get();
-                    readingState = ReadingState.PROCESS_IN;
-                }
-
-                if (readingState == ReadingState.PROCESS_IN) {
-                    // TODO treat command
+                switch (authenticationState) {
+                    case ERROR -> {
+                        System.out.println("Context error processIn");
+                        return;
+                    }
+                    case UNREGISTERED -> server.processInUnregistered(this);
+                    case CLIENT_LOGGED -> server.processInCLientLogged(this);
+                    case SERVER_REGISTERED -> server.processInServerRegistered(this);
                 }
             }
         }

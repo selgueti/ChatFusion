@@ -15,6 +15,7 @@ import java.nio.channels.Channel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Scanner;
 import java.util.logging.Logger;
@@ -32,25 +33,27 @@ public class ClientChatFusion {
     private final StringController stringController = new StringController();
     private String serverName;
     private Context uniqueContext;
+    private final Path directory;
 
-    public ClientChatFusion(String login, InetSocketAddress serverAddress) throws IOException {
+    public ClientChatFusion(String login, InetSocketAddress serverAddress, Path directory) throws IOException {
         this.serverAddress = serverAddress;
         this.login = login;
         this.sc = SocketChannel.open();
         this.selector = Selector.open();
         this.console = new Thread(this::consoleRun);
+        this.directory = directory;
     }
 
     public static void main(String[] args) throws NumberFormatException, IOException {
-        if (args.length != 3) {
+        if (args.length != 4) {
             usage();
             return;
         }
-        new ClientChatFusion(args[0], new InetSocketAddress(args[1], Integer.parseInt(args[2]))).launch();
+        new ClientChatFusion(args[0], new InetSocketAddress(args[1], Integer.parseInt(args[2])), Path.of(args[3])).launch();
     }
 
     private static void usage() {
-        System.out.println("Usage : ClientChatFusion login hostname port");
+        System.out.println("Usage : ClientChatFusion login hostname port directory");
     }
 
     private void consoleRun() {
@@ -116,15 +119,12 @@ public class ClientChatFusion {
         sc.connect(serverAddress);
 
         // TODO while not logged, don't start console
-        // TODO need to send LOGIN_ANONYMOUS(0) command
-        // need to send LOGIN_ANONYMOUS(0) ?
         //while(!uniqueContext.isLogged()){}
-
         uniqueContext.queueCommand(new LoginAnonymous(login).toBuffer());
         // need to read response to set State == State.LOGGED and continue launch
-        // or retry new authentication..
-        
-        console.start();
+        // or retry new authentication, or exit program
+
+        //console.start();
         while (!Thread.interrupted()) {
             try {
                 selector.select(this::treatKey);
@@ -184,6 +184,7 @@ public class ClientChatFusion {
                 case ERROR -> context.authenticationState = Context.AuthenticationState.ERROR;
                 case DONE -> {
                     serverName = context.loginAcceptedReader.get().serverName();
+                    console.start();
                     context.loginAcceptedReader.reset();
                     context.authenticationState = Context.AuthenticationState.LOGGED;
                     context.readingState = Context.ReadingState.WAITING_OPCODE;
@@ -192,8 +193,8 @@ public class ClientChatFusion {
         }
         if (context.authenticationState == Context.AuthenticationState.UNREGISTERED && context.readingState == Context.ReadingState.PROCESS_IN && context.currentCommand == 3) {
             logger.info("Username already used, please chose another one");
-            context.silentlyClose(); // TODO make sure scanner and main thread are closed to
-            console.interrupt(); // TODO probably block into scanner, think about this
+            context.silentlyClose(); // TODO make sure /*scanner and*/ main thread are closed to
+            //console.interrupt(); // TODO probably block into scanner, think about this
         }
     }
 
