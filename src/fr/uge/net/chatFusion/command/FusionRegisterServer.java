@@ -19,8 +19,8 @@ public record FusionRegisterServer(String name) {
 
     public ByteBuffer toBuffer() {
         ByteBuffer bbName = UTF8.encode(name);
-        ByteBuffer buffer = ByteBuffer.allocate(bbName.remaining() + Long.BYTES + Byte.BYTES);
-        buffer.put(OPCODE).putLong(bbName.remaining()).put(bbName);
+        ByteBuffer buffer = ByteBuffer.allocate(bbName.remaining() + Integer.BYTES + Byte.BYTES);
+        buffer.put(OPCODE).putInt(bbName.remaining()).put(bbName);
         return buffer;
     }
 }
