@@ -128,22 +128,22 @@ public class ClientChatFusion {
         key.attach(uniqueContext);
         sc.connect(serverAddress);
 
-        // TODO while not logged, don't start console
-        //while(!uniqueContext.isLogged()){}
-        uniqueContext.queueCommand(new LoginAnonymous(login).toBuffer());
-        // need to read response to set State == State.LOGGED and continue launch
-        // or retry new authentication, or exit program
-
         console.start();
         while (!Thread.interrupted()) {
+            Helpers.printKeys(selector); // for debug
+            System.out.println("Starting select");
             try {
                 selector.select(this::treatKey);
+                if (uniqueContext.authenticationState == Context.AuthenticationState.UNREGISTERED) {
+                    uniqueContext.queueCommand(new LoginAnonymous(login).toBuffer());
+                }
                 processInstruction();
             } catch (UncheckedIOException tunneled) {
                 console.interrupt();
                 Thread.currentThread().interrupt();
                 throw tunneled.getCause();
             }
+            System.out.println("Select finished");
         }
     }
 
@@ -183,82 +183,72 @@ public class ClientChatFusion {
     //                                           client commands processing                                           //
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    private void processInUnregistered(Context context) {
-        if (context.readingState == Context.ReadingState.WAITING_OPCODE) {
-            if (Reader.ProcessStatus.DONE == context.opcodeReader.process(context.bufferIn)) {
-                context.currentCommand = context.opcodeReader.get()[0];
-                context.opcodeReader.reset();
-                context.readingState = Context.ReadingState.PROCESS_IN;
-            }
-        }
-        if (context.authenticationState == Context.AuthenticationState.UNREGISTERED && context.readingState == Context.ReadingState.PROCESS_IN && context.currentCommand == 2) {
+    private boolean processInUnregistered(Context context) {
+        if (context.currentCommand == 2) {
             switch (context.loginAcceptedReader.process(context.bufferIn)) {
+                case ERROR -> context.silentlyClose();
                 case REFILL -> {
-                    return;
+                    return true;
                 }
-                case ERROR -> context.authenticationState = Context.AuthenticationState.ERROR;
                 case DONE -> {
                     serverName = context.loginAcceptedReader.get().serverName();
-                    //console.start();
                     context.loginAcceptedReader.reset();
                     context.authenticationState = Context.AuthenticationState.LOGGED;
                     context.readingState = Context.ReadingState.WAITING_OPCODE;
+                    return false;
                 }
             }
         }
-        if (context.authenticationState == Context.AuthenticationState.UNREGISTERED && context.readingState == Context.ReadingState.PROCESS_IN && context.currentCommand == 3) {
-            logger.info("Username already used, please chose another one");
+        if (context.currentCommand == 3) {
+            System.out.println("Username already used, please chose another one");
             context.silentlyClose(); // TODO make sure /*scanner and*/ main thread are closed to
             //console.interrupt(); // TODO probably block into scanner, think about this
         }
+        return false;
     }
 
-    private void processInLogged(Context context) {
-        if (context.readingState == Context.ReadingState.WAITING_OPCODE) {
-            if (Reader.ProcessStatus.DONE == context.opcodeReader.process(context.bufferIn)) {
-                context.currentCommand = context.opcodeReader.get()[0];
-                context.opcodeReader.reset();
-                context.readingState = Context.ReadingState.PROCESS_IN;
-            }
-        }
-        if (context.readingState == Context.ReadingState.PROCESS_IN) {
-            switch (context.currentCommand) {
-                case 4 -> {
-                    switch (context.messagePublicSendReader.process(context.bufferIn)) {
-                        case REFILL -> {
-                            return;
-                        }
-                        case ERROR -> context.readingState = Context.ReadingState.ERROR;
-                        case DONE -> {
-                            var messagePublicSend = context.messagePublicSendReader.get();
-                            context.messagePublicSendReader.reset();
-                            System.out.println(messagePublicSend.loginSrc() + "@" + messagePublicSend.serverSrc() + " : " + messagePublicSend.msg());
-                        }
+    private boolean processInLogged(Context context) {
+        switch (context.currentCommand) {
+            case 4 -> {
+                switch (context.messagePublicSendReader.process(context.bufferIn)) {
+                    case ERROR -> context.silentlyClose();
+                    case REFILL -> {
+                        return true;
+                    }
+                    case DONE -> {
+                        var messagePublicSend = context.messagePublicSendReader.get();
+                        context.messagePublicSendReader.reset();
+                        System.out.println(messagePublicSend.loginSrc() + "@" + messagePublicSend.serverSrc() + " : " + messagePublicSend.msg());
+                        return false;
                     }
                 }
+            }
 
-                case 5 -> {
-                    // TODO log the MESSAGE_PUBLIC_TRANSMIT receiving
-                }
-                case 6 -> {
-                    switch (context.messagePrivateReader.process(context.bufferIn)) {
-                        case REFILL -> {
-                        }
-                        case ERROR -> context.readingState = Context.ReadingState.ERROR;
-                        case DONE -> {
-                            var messagePrivate = context.messagePrivateReader.get();
-                            context.messagePrivateReader.reset();
-                            System.out.println(messagePrivate.loginSrc() + "@" + messagePrivate.serverSrc() + " : " + messagePrivate.msg());
-                        }
+            case 5 -> {
+                // TODO log the MESSAGE_PUBLIC_TRANSMIT receiving
+            }
+            case 6 -> {
+                switch (context.messagePrivateReader.process(context.bufferIn)) {
+                    case ERROR -> context.silentlyClose();
+                    case REFILL -> {
+                        return true;
+                    }
+                    case DONE -> {
+                        var messagePrivate = context.messagePrivateReader.get();
+                        context.messagePrivateReader.reset();
+                        System.out.println(messagePrivate.loginSrc() + "@" + messagePrivate.serverSrc() + " : " + messagePrivate.msg());
+                        return false;
                     }
                 }
-                case 7 -> {
-                    // TODO build file + log file receiving
-                }
-                default -> System.out.println("OPCODE unknown or not expected, drop command");
             }
-            context.readingState = Context.ReadingState.WAITING_OPCODE;
+            case 7 -> {
+                // TODO build file + log file receiving
+            }
+            default -> System.out.println("OPCODE unknown or not expected, drop command");
         }
+        context.readingState = Context.ReadingState.WAITING_OPCODE;
+
+        return false;
     }
 
 
@@ -298,12 +288,14 @@ public class ClientChatFusion {
          */
         private void processIn() {
             for (; ; ) {
+                if(assureCurrentCommandSet()) return ;
                 switch (authenticationState) {
-                    case ERROR -> {
-                        return;
+                    case UNREGISTERED -> {
+                        if (client.processInUnregistered(this)) return;
                     }
-                    case UNREGISTERED -> client.processInUnregistered(this);
-                    case LOGGED -> client.processInLogged(this);
+                    case LOGGED -> {
+                        if (client.processInLogged(this)) return;
+                    }
                 }
             }
         }
@@ -320,10 +312,29 @@ public class ClientChatFusion {
         }
 
         /**
+         * Assure currentCommand is set
+         */
+        private boolean assureCurrentCommandSet() {
+            if (readingState == Context.ReadingState.WAITING_OPCODE) {
+                switch (opcodeReader.process(bufferIn))
+                {
+                    case ERROR -> silentlyClose();
+                    case REFILL -> {return true;}
+                    case DONE -> {
+                        currentCommand = opcodeReader.get()[0];
+                        opcodeReader.reset();
+                        readingState = Context.ReadingState.PROCESS_IN;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /**
          * Try to fill bufferOut from the message queue
          */
         private void processOut() {
-            while (!queueCommand.isEmpty()) {
+            while (!queueCommand.isEmpty() && bufferOut.hasRemaining()) {
                 if (writer == null) {
                     var command = queueCommand.peekFirst();
                     writer = new Writer(command);
@@ -407,7 +418,7 @@ public class ClientChatFusion {
         public void doConnect() throws IOException {
             if (!sc.finishConnect())
                 return; // the selector gave a bad hint
-            key.interestOps(SelectionKey.OP_READ);
+            key.interestOps(SelectionKey.OP_READ); // OP_WRITE to send the LoginAnonymous command ?
         }
 
         private boolean isLogged() {
@@ -416,12 +427,11 @@ public class ClientChatFusion {
 
         enum ReadingState {
             WAITING_OPCODE,
-            PROCESS_IN,
-            ERROR
+            PROCESS_IN
         }
 
         private enum AuthenticationState {
-            UNREGISTERED, LOGGED, ERROR
+            UNREGISTERED, LOGGED
         }
     }
 }
