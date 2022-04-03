@@ -134,7 +134,7 @@ public class ClientChatFusion {
         // need to read response to set State == State.LOGGED and continue launch
         // or retry new authentication, or exit program
 
-        //console.start();
+        console.start();
         while (!Thread.interrupted()) {
             try {
                 selector.select(this::treatKey);
@@ -180,7 +180,7 @@ public class ClientChatFusion {
 
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    //                                           server commands processing                                           //
+    //                                           client commands processing                                           //
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private void processInUnregistered(Context context) {
@@ -199,7 +199,7 @@ public class ClientChatFusion {
                 case ERROR -> context.authenticationState = Context.AuthenticationState.ERROR;
                 case DONE -> {
                     serverName = context.loginAcceptedReader.get().serverName();
-                    console.start();
+                    //console.start();
                     context.loginAcceptedReader.reset();
                     context.authenticationState = Context.AuthenticationState.LOGGED;
                     context.readingState = Context.ReadingState.WAITING_OPCODE;
@@ -228,7 +228,7 @@ public class ClientChatFusion {
                         case REFILL -> {
                             return;
                         }
-                        case ERROR -> context.readingState = Context.ReadingState.WAITING_OPCODE;
+                        case ERROR -> context.readingState = Context.ReadingState.ERROR;
                         case DONE -> {
                             var messagePublicSend = context.messagePublicSendReader.get();
                             context.messagePublicSendReader.reset();
@@ -244,7 +244,7 @@ public class ClientChatFusion {
                     switch (context.messagePrivateReader.process(context.bufferIn)) {
                         case REFILL -> {
                         }
-                        case ERROR -> context.readingState = Context.ReadingState.WAITING_OPCODE;
+                        case ERROR -> context.readingState = Context.ReadingState.ERROR;
                         case DONE -> {
                             var messagePrivate = context.messagePrivateReader.get();
                             context.messagePrivateReader.reset();
@@ -417,6 +417,7 @@ public class ClientChatFusion {
         enum ReadingState {
             WAITING_OPCODE,
             PROCESS_IN,
+            ERROR
         }
 
         private enum AuthenticationState {
