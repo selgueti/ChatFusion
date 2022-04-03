@@ -1,12 +1,14 @@
 package fr.uge.net.chatFusion;
 
 import fr.uge.net.chatFusion.util.StringController;
+import fr.uge.net.chatFusion.util.Writer;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
+import java.util.ArrayDeque;
 import java.util.Scanner;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -38,6 +40,11 @@ public class ServerFusionManager {
     private static void usage() {
         System.out.println("Usage : ServerFusionManager port");
     }
+
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                            Console Thread + management of the user's instructions                              //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private void consoleRun() {
         boolean closed = false;
@@ -125,6 +132,9 @@ public class ServerFusionManager {
     }
 
 
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                                                selection loop                                                  //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     public void launch() throws IOException {
         serverSocketChannel.configureBlocking(false);
@@ -174,7 +184,7 @@ public class ServerFusionManager {
         }
         sc.configureBlocking(false);
         var selectionKey = sc.register(selector, SelectionKey.OP_READ);
-        selectionKey.attach(new Context(selectionKey));
+        selectionKey.attach(new Context(selectionKey, this));
     }
 
     private void silentlyClose(SelectionKey key) {
@@ -186,30 +196,92 @@ public class ServerFusionManager {
         }
     }
 
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                                           sfm commands processing                                              //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    // TODO add method for sfm commands processing
+
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                   Context: represents the state of a discussion with a specific interlocutor                   //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
     static private class Context {
         private final SelectionKey key;
         private final SocketChannel sc;
-        private final ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
+        private final ServerFusionManager server; // we could also have Context as an instance class, which would naturally
+        // give access to ServerFusionManager.this
         private boolean closed = false;
+        private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
+        private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
+        private final ArrayDeque<ByteBuffer> queueCommand = new ArrayDeque<>();
+        private Writer writer = null;
 
-
-        private Context(SelectionKey key) {
+        private Context(SelectionKey key, ServerFusionManager server) {
             this.key = key;
             this.sc = (SocketChannel) key.channel();
+            this.server = server;
+        }
+
+        /**
+         * Process the content of bufferIn
+         * <p>
+         * The convention is that bufferIn is in write-mode before the call to process and
+         * after the call
+         */
+        private void processIn() {
+            for (; ; ) {
+                //TODO
+            }
+        }
+
+        /**
+         * Add a text to the text queue, tries to fill bufferOut and updateInterestOps
+         *
+         * @param cmd - command to add to the command queue
+         */
+        public void queueCommand(ByteBuffer cmd) {
+            queueCommand.addLast(cmd);
+            processOut();
+            updateInterestOps();
+        }
+
+        /**
+         * Try to fill bufferOut from the command queue
+         */
+        private void processOut() {
+            while (!queueCommand.isEmpty()) {
+                if (writer == null) {
+                    var command = queueCommand.peekFirst();
+                    writer = new Writer(command);
+                }
+                writer.fillBuffer(bufferOut);
+                if (writer.isDone()) {
+                    queueCommand.removeFirst();
+                    writer = null;
+                }
+            }
         }
 
         /**
          * Update the interestOps of the key looking only at values of the boolean
-         * closed and the ByteBuffer buffer.
+         * closed and of both ByteBuffers.
          * <p>
-         * The convention is that buff is in write-mode.
+         * The convention is that both buffers are in write-mode before the call to
+         * updateInterestOps and after the call. Also, it is assumed that process has
+         * been be called just before updateInterestOps.
          */
         private void updateInterestOps() {
             var interestOps = 0;
-            if (!closed && buffer.hasRemaining()) {
+            if (!key.isValid()) {
+                return;
+            }
+            if (!closed && bufferIn.hasRemaining()) {
                 interestOps |= SelectionKey.OP_READ;
             }
-            if (buffer.position() != 0) {
+            if (bufferOut.position() != 0) {
                 interestOps |= SelectionKey.OP_WRITE;
             }
             if (interestOps == 0) {
@@ -219,43 +291,44 @@ public class ServerFusionManager {
             key.interestOps(interestOps);
         }
 
-        /**
-         * Performs the read action on sc
-         * <p>
-         * The convention is that buffer is in write-mode before calling doRead and is in
-         * write-mode after calling doRead
-         *
-         * @throws IOException - if some I/O error occurs
-         */
-        private void doRead() throws IOException {
-            if (-1 == sc.read(buffer)) {
-                closed = true;
-                logger.info("Connexion closed");
-            }
-            updateInterestOps();
-        }
-
-        /**
-         * Performs the write action on sc
-         * <p>
-         * The convention is that buffer is in write-mode before calling doWrite and is in
-         * write-mode after calling doWrite
-         *
-         * @throws IOException - if some I/O error occurs
-         */
-        private void doWrite() throws IOException {
-            buffer.flip(); // need to flip buffer to write data
-            sc.write(buffer);
-            buffer.compact(); // to follow the convention
-            updateInterestOps();
-        }
-
         private void silentlyClose() {
             try {
                 sc.close();
             } catch (IOException e) {
                 // ignore exception
             }
+        }
+
+        /**
+         * Performs the read action on sc
+         * <p>
+         * The convention is that both buffers are in write-mode before the call to
+         * doRead and after the call
+         *
+         * @throws IOException - if some I/O error occurs
+         */
+        private void doRead() throws IOException {
+            if (-1 == sc.read(bufferIn)) {
+                closed = true;
+            }
+            processIn();
+            updateInterestOps();
+        }
+
+        /**
+         * Performs the write action on sc
+         * <p>
+         * The convention is that both buffers are in write-mode before the call to
+         * doWrite and after the call
+         *
+         * @throws IOException - if some I/O error occurs
+         */
+        private void doWrite() throws IOException {
+            bufferOut.flip();
+            sc.write(bufferOut);
+            bufferOut.compact();
+            processOut();
+            updateInterestOps();
         }
     }
 }

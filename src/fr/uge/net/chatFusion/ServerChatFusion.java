@@ -1,5 +1,6 @@
 package fr.uge.net.chatFusion;
 
+import fr.uge.net.chatFusion.command.FusionRegisterServer;
 import fr.uge.net.chatFusion.command.SocketAddressToken;
 import fr.uge.net.chatFusion.util.StringController;
 import fr.uge.net.chatFusion.util.Writer;
@@ -19,20 +20,24 @@ public class ServerChatFusion {
     private final ServerSocketChannel serverSocketChannel;
     private final InetSocketAddress sfmAddress;
     private final Selector selector;
-    private final String name;
+    private final String serverName;
     private final Thread console;
     private final StringController stringController = new StringController();
     private final Map<String, SocketAddressToken> alreadyMerged = new HashMap<>();
+    private final SocketChannel sfmSockenChannel;
     private Map<String, SocketAddressToken> routes = new HashMap<>();
     private SFMRegistrationState registrationState = SFMRegistrationState.UNREGISTERED;
+    private Context uniqueSFMContext;
 
-    public ServerChatFusion(String name, int port, InetSocketAddress sfmAddress) throws IOException {
+
+    public ServerChatFusion(String serverName, int port, InetSocketAddress sfmAddress) throws IOException {
         serverSocketChannel = ServerSocketChannel.open();
         serverSocketChannel.bind(new InetSocketAddress(port));
         selector = Selector.open();
         this.sfmAddress = sfmAddress;
-        this.name = name;
+        this.serverName = serverName;
         this.console = new Thread(this::consoleRun);
+        this.sfmSockenChannel = SocketChannel.open();
     }
 
     public static void main(String[] args) throws NumberFormatException, IOException {
@@ -47,13 +52,22 @@ public class ServerChatFusion {
         System.out.println("Usage : ServerChatFusion name port address_sfm port_sfm");
     }
 
+    public SFMRegistrationState getRegistrationState() {
+        return registrationState;
+    }
+
     @Override
     public String toString() {
         return "ServerChatFusion{" +
-                "name=" + name +
+                "name=" + serverName +
                 ", sfmAddress=" + sfmAddress +
                 '}';
     }
+
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                            Console Thread + management of the user's instructions                              //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private void consoleRun() {
         boolean closed = false;
@@ -140,13 +154,18 @@ public class ServerChatFusion {
         Thread.currentThread().interrupt();
     }
 
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                                                selection loop                                                  //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
     public void launch() throws IOException {
         System.out.println(this);
         console.start();
         serverSocketChannel.configureBlocking(false);
         serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
 
-        // TODO connect to SFM and send FUSION_REGISTER_SERVER(8) command
+        registerToServerFusionManager();
 
         while (!Thread.interrupted()) {
             Helpers.printKeys(selector); // for debug
@@ -192,7 +211,7 @@ public class ServerChatFusion {
         }
         sc.configureBlocking(false);
         var selectionKey = sc.register(selector, SelectionKey.OP_READ);
-        selectionKey.attach(new Context(this, selectionKey));
+        selectionKey.attach(new Context(selectionKey, this));
     }
 
     private void silentlyClose(SelectionKey key) {
@@ -202,6 +221,21 @@ public class ServerChatFusion {
         } catch (IOException e) {
             // ignore exception
         }
+    }
+
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                                           server commands processing                                           //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    private void registerToServerFusionManager() throws IOException {
+        sfmSockenChannel.configureBlocking(false);
+        var key = sfmSockenChannel.register(selector, SelectionKey.OP_CONNECT);
+        uniqueSFMContext = new Context(key, this);
+        key.attach(uniqueSFMContext);
+        // TODO connect to SFM and send FUSION_REGISTER_SERVER(8) command
+        sfmSockenChannel.connect(sfmAddress);
+        uniqueSFMContext.queueCommand(new FusionRegisterServer(serverName).toBuffer());
     }
 
     /**
@@ -216,7 +250,7 @@ public class ServerChatFusion {
                 continue;
             }
             Context context = (Context) key.attachment(); // Safe Cast
-            // TODO check server context / client context
+            // TODO check server context / client context  / sfm context
             context.queueCommand(cmd.duplicate()); // duplicate allows us not to copy the data
         }
     }
@@ -230,11 +264,18 @@ public class ServerChatFusion {
     private void processInUnregistered(Context context) {
     }
 
+
     private enum SFMRegistrationState {
-        LOGGED, UNREGISTERED
+        LOGGED, UNREGISTERED;
     }
 
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                   Context: represents the state of a discussion with a specific interlocutor                   //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
     static private class Context {
+
         private final SelectionKey key;
         private final SocketChannel sc;
         private final ServerChatFusion server; // we could also have Context as an instance class, which would naturally
@@ -248,7 +289,7 @@ public class ServerChatFusion {
         private ReadingState readingState = ReadingState.WAITING_OPCODE;
         private AuthenticationState authenticationState = AuthenticationState.UNREGISTERED;
 
-        private Context(ServerChatFusion server, SelectionKey key) {
+        private Context(SelectionKey key, ServerChatFusion server) {
             this.key = key;
             this.sc = (SocketChannel) key.channel();
             this.server = server;
@@ -262,14 +303,27 @@ public class ServerChatFusion {
          */
         private void processIn() {
             for (; ; ) {
-                switch (authenticationState) {
-                    case ERROR -> {
-                        System.out.println("Context error processIn");
-                        return;
+
+                if (server.getRegistrationState() == SFMRegistrationState.LOGGED) {
+                    switch (authenticationState) {
+                        case ERROR -> {
+                            System.out.println("Context error processIn");
+                            return;
+                        }
+                        case UNREGISTERED -> server.processInUnregistered(this);
+                        case CLIENT_LOGGED -> server.processInCLientLogged(this);
+                        case SERVER_REGISTERED -> server.processInServerRegistered(this);
                     }
-                    case UNREGISTERED -> server.processInUnregistered(this);
-                    case CLIENT_LOGGED -> server.processInCLientLogged(this);
-                    case SERVER_REGISTERED -> server.processInServerRegistered(this);
+                } else {
+                    switch (authenticationState) {
+                        case ERROR -> {
+                            System.out.println("Context error processIn");
+                            return;
+                        }
+                        case UNREGISTERED -> server.processInUnregistered(this);
+                        case CLIENT_LOGGED -> server.processInCLientLogged(this);
+                        case SERVER_REGISTERED -> server.processInServerRegistered(this);
+                    }
                 }
             }
         }

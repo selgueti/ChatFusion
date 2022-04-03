@@ -31,9 +31,9 @@ public class ClientChatFusion {
     private final String login;
     private final Thread console;
     private final StringController stringController = new StringController();
+    private final Path directory;
     private String serverName;
     private Context uniqueContext;
-    private final Path directory;
 
     public ClientChatFusion(String login, InetSocketAddress serverAddress, Path directory) throws IOException {
         this.serverAddress = serverAddress;
@@ -55,6 +55,11 @@ public class ClientChatFusion {
     private static void usage() {
         System.out.println("Usage : ClientChatFusion login hostname port directory");
     }
+
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                            Console Thread + management of the user's instructions                              //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private void consoleRun() {
         try {
@@ -110,6 +115,11 @@ public class ClientChatFusion {
             uniqueContext.queueCommand(parseInstruction(stringController.poll()));
         }
     }
+
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                                                selection loop                                                  //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     public void launch() throws IOException {
         sc.configureBlocking(false);
@@ -167,6 +177,11 @@ public class ClientChatFusion {
             // ignore exception
         }
     }
+
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                                           server commands processing                                           //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private void processInUnregistered(Context context) {
         if (context.readingState == Context.ReadingState.WAITING_OPCODE) {
@@ -240,11 +255,16 @@ public class ClientChatFusion {
                 case 7 -> {
                     // TODO build file + log file receiving
                 }
-                case default -> System.out.println("OPCODE unknown or not expected, drop command");
+                default -> System.out.println("OPCODE unknown or not expected, drop command");
             }
             context.readingState = Context.ReadingState.WAITING_OPCODE;
         }
     }
+
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                   Context: represents the state of a discussion with a specific interlocutor                   //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     static private class Context {
         private final SelectionKey key;
