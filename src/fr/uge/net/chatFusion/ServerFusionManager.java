@@ -242,7 +242,7 @@ public class ServerFusionManager {
          *
          * @param cmd - command to add to the command queue
          */
-        public void queueCommand(ByteBuffer cmd) {
+        private void queueCommand(ByteBuffer cmd) {
             queueCommand.addLast(cmd);
             processOut();
             updateInterestOps();
