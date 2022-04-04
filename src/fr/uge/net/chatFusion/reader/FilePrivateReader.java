@@ -185,5 +185,11 @@ public class FilePrivateReader implements Reader<FilePrivate> {
         stringReader.reset();
         intReader.reset();
         state = State.WAITING_SERVER_SRC;
+        serverSrc = null;
+        loginSrc = null;
+        serverDst = null;
+        loginDst = null;
+        fileName = null;
+        bytes = null;
     }
 }

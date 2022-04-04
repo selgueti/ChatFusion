@@ -40,7 +40,7 @@ public class FusionInitReader implements Reader<FusionInit> {
 
             }
         }
-        return ProcessStatus.ERROR;
+        throw new AssertionError();
     }
 
     @Override
@@ -55,5 +55,6 @@ public class FusionInitReader implements Reader<FusionInit> {
     public void reset() {
         socketReader.reset();
         state = State.WAITING_SOCKET;
+        socketAddress = null;
     }
 }

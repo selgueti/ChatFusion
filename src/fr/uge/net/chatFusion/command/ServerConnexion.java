@@ -18,7 +18,7 @@ public record ServerConnexion(String name) {
 
     public ByteBuffer toBuffer(){
         var bbName = UTF8.encode(name);
-        var buffer = ByteBuffer.allocate(Long.BYTES + bbName.remaining() + Byte.BYTES);
+        var buffer = ByteBuffer.allocate(Integer.BYTES + bbName.remaining() + Byte.BYTES);
 
         buffer.put(OPCODE).putInt(bbName.remaining()).put(bbName);
         return buffer;

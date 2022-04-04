@@ -52,5 +52,6 @@ public class ServerConnexionReader implements Reader<ServerConnexion> {
     public void reset() {
         state = State.WAITING;
         stringReader.reset();
+        name = null;
     }
 }

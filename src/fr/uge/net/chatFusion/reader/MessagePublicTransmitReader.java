@@ -74,7 +74,7 @@ public class MessagePublicTransmitReader implements Reader<MessagePublicTransmit
                 }
             }
         }
-        return ProcessStatus.ERROR;
+        throw new AssertionError();
     }
 
     @Override
@@ -88,5 +88,8 @@ public class MessagePublicTransmitReader implements Reader<MessagePublicTransmit
     @Override
     public void reset() {
         stringReader.reset();
+        server = null;
+        login = null;
+        msg = null;
     }
 }
