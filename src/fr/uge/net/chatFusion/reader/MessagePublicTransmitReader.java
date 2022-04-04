@@ -1,0 +1,92 @@
+package fr.uge.net.chatFusion.reader;
+
+import fr.uge.net.chatFusion.command.MessagePublicTransmit;
+
+import java.nio.ByteBuffer;
+
+public class MessagePublicTransmitReader implements Reader<MessagePublicTransmit> {
+    private static final StringReader stringReader = new StringReader();
+    private String server;
+    private String login;
+    private String msg;
+    private State state = State.WAITING_SERVER;
+
+    private enum State{
+        DONE,
+        ERROR,
+        WAITING_SERVER,
+        WAITING_LOGIN,
+        WAITING_MSG
+    }
+    @Override
+    public ProcessStatus process(ByteBuffer bb) {
+        switch(state){
+            case DONE, ERROR ->{
+                throw new IllegalStateException();
+            }
+            case WAITING_SERVER -> {
+                switch(stringReader.process(bb)){
+                    case REFILL -> {
+                        return ProcessStatus.REFILL;
+                    }
+                    case ERROR -> {
+                        state = State.ERROR;
+                        return ProcessStatus.ERROR;
+                    }
+                    case DONE -> {
+                        server = stringReader.get();
+                        stringReader.reset();
+                        state = State.WAITING_LOGIN;
+                    }
+                }
+            }
+            case WAITING_LOGIN -> {
+                switch(stringReader.process(bb)){
+                    case REFILL -> {
+                        return ProcessStatus.REFILL;
+                    }
+                    case ERROR -> {
+                        state = State.ERROR;
+                        return ProcessStatus.ERROR;
+                    }
+                    case DONE -> {
+                        login = stringReader.get();
+                        stringReader.reset();
+                        state = State.WAITING_MSG;
+                    }
+                }
+            }
+            case WAITING_MSG -> {
+                switch (stringReader.process(bb)){
+                    case REFILL -> {
+                        return ProcessStatus.REFILL;
+                    }
+                    case ERROR -> {
+                        state = State.ERROR;
+                        return ProcessStatus.ERROR;
+                    }
+                    case DONE -> {
+                        msg = stringReader.get();
+                        stringReader.reset();
+                        state = State.DONE;
+                        return ProcessStatus.DONE;
+                    }
+                }
+            }
+        }
+        return ProcessStatus.ERROR;
+    }
+
+    @Override
+    public MessagePublicTransmit get() {
+        if(state != State.DONE){
+            throw new IllegalStateException();
+        }
+        return new MessagePublicTransmit(server, login, msg);
+    }
+
+    @Override
+    public void reset() {
+        stringReader.reset();
+    }
+}

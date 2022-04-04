@@ -1,6 +1,5 @@
 package fr.uge.net.chatFusion;
 
-import fr.uge.net.chatFusion.command.MessagePublicSend;
 import fr.uge.net.chatFusion.util.StringController;
 
 import java.io.IOException;
