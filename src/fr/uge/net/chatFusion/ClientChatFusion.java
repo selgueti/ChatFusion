@@ -3,7 +3,10 @@ package fr.uge.net.chatFusion;
 import fr.uge.net.chatFusion.command.LoginAnonymous;
 import fr.uge.net.chatFusion.command.MessagePrivate;
 import fr.uge.net.chatFusion.command.MessagePublicSend;
-import fr.uge.net.chatFusion.reader.*;
+import fr.uge.net.chatFusion.reader.BytesReader;
+import fr.uge.net.chatFusion.reader.LoginAcceptedReader;
+import fr.uge.net.chatFusion.reader.MessagePrivateReader;
+import fr.uge.net.chatFusion.reader.MessagePublicSendReader;
 import fr.uge.net.chatFusion.util.StringController;
 import fr.uge.net.chatFusion.util.Writer;
 
@@ -34,6 +37,7 @@ public class ClientChatFusion {
     private final Path directory;
     private String serverName;
     private Context uniqueContext;
+    private boolean firstSend = true;
 
     public ClientChatFusion(String login, InetSocketAddress serverAddress, Path directory) throws IOException {
         this.serverAddress = serverAddress;
@@ -66,9 +70,9 @@ public class ClientChatFusion {
             try (var scanner = new Scanner(System.in)) {
                 while (scanner.hasNextLine()) {
                     var msg = scanner.nextLine();
-                    if (uniqueContext.isLogged()) {
-                        sendInstruction(msg);
-                    }
+                    sendInstruction(msg);
+                    /*if (uniqueContext.isLogged()) {
+                    }*/
                 }
             }
             logger.info("Console thread stopping");
@@ -92,17 +96,20 @@ public class ClientChatFusion {
     }
 
     private ByteBuffer parseInstruction(String instruction) {
+        if (instruction.equals("CONNECT")) {
+            System.out.println("Try to join " + serverAddress);
+            return new LoginAnonymous(login).toBuffer();
+        }
         if (!instruction.startsWith("/") && !instruction.startsWith("@")) {
-            var msg = instruction.subSequence(1, instruction.length());
-            return new MessagePublicSend(serverName, login, msg.toString()).toBuffer();
+            return new MessagePublicSend(serverName, login, instruction).toBuffer();
         } else {
             // consider for moment just private message
             //if(instruction.startsWith("@")) {
             instruction = instruction.substring(1);
-            var tokens = instruction.split(":");
+            var tokens = instruction.split(":", 2);
             var loginDst = tokens[0];
-            var serverDst = tokens[1].split(" ", 1)[0];
-            var msg = tokens[1].split(" ", 1)[1];
+            var serverDst = tokens[1].split(" ", 2)[0];
+            var msg = tokens[1].split(" ", 2)[1];
             return new MessagePrivate(serverName, login, serverDst, loginDst, msg).toBuffer();
         }
     }
@@ -127,20 +134,19 @@ public class ClientChatFusion {
         uniqueContext = new Context(key, this);
         key.attach(uniqueContext);
         sc.connect(serverAddress);
-
+        //uniqueContext.queueCommand(new LoginAnonymous(login).toBuffer());
         console.start();
+
         while (!Thread.interrupted()) {
             //Helpers.printKeys(selector); // for debug
             //System.out.println("Starting select");
             try {
                 selector.select(this::treatKey);
-                if (uniqueContext.authenticationState == Context.AuthenticationState.UNREGISTERED) {
+                if(firstSend){
+                    firstSend = false;
                     uniqueContext.queueCommand(new LoginAnonymous(login).toBuffer());
-                    System.out.println("Send new LoginAnonymous");
-                }else{
-                    System.out.println("Before processInstruction()");
-                    processInstruction();
                 }
+                processInstruction();
             } catch (UncheckedIOException tunneled) {
                 console.interrupt();
                 Thread.currentThread().interrupt();
@@ -164,10 +170,10 @@ public class ClientChatFusion {
             }
         } catch (IOException ioe) {
             // lambda call in select requires to tunnel IOException
-            logger.warning(serverAddress.getHostString() + ":" + serverAddress.getPort() + " is unreachable");
-            silentlyClose(key);
+            //logger.warning(serverAddress.getHostString() + ":" + serverAddress.getPort() + " is unreachable");
+            //silentlyClose(key);
             //console.interrupt();
-            Thread.currentThread().interrupt();
+            //Thread.currentThread().interrupt();
             throw new UncheckedIOException(ioe);
         }
     }
@@ -187,25 +193,23 @@ public class ClientChatFusion {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private boolean processInUnregistered(Context context) {
-        System.out.println("RECEIVING OPCODE = " + context.currentCommand);
+        //System.out.println("RECEIVING OPCODE = " + context.currentCommand);
         if (context.currentCommand == 2) {
             switch (context.loginAcceptedReader.process(context.bufferIn)) {
                 case ERROR -> {
-                    System.out.println("Case ERROR");
+                    //System.out.println("Case ERROR");
                     context.silentlyClose();
                 }
                 case REFILL -> {
-                    System.out.println("Case REFILL");
+                    //System.out.println("Case REFILL");
                     return true;
                 }
                 case DONE -> {
-                    System.out.println("Case DONE");
+                    //System.out.println("Case DONE");
                     serverName = context.loginAcceptedReader.get().serverName();
                     context.loginAcceptedReader.reset();
-                    System.out.println("SERVER NAME = " + serverName);
+                    System.out.println("Authentication to " + serverName  + " success with login : " + login);
                     context.authenticationState = Context.AuthenticationState.LOGGED;
-                    context.readingState = Context.ReadingState.WAITING_OPCODE;
-                    return false;
                 }
             }
         }
@@ -214,6 +218,7 @@ public class ClientChatFusion {
             context.silentlyClose(); // TODO make sure /*scanner and*/ main thread are closed to
             //console.interrupt(); // TODO probably block into scanner, think about this
         }
+        context.readingState = Context.ReadingState.WAITING_OPCODE;
         return false;
     }
 
@@ -229,7 +234,6 @@ public class ClientChatFusion {
                         var messagePublicSend = context.messagePublicSendReader.get();
                         context.messagePublicSendReader.reset();
                         System.out.println(messagePublicSend.loginSrc() + "@" + messagePublicSend.serverSrc() + " : " + messagePublicSend.msg());
-                        return false;
                     }
                 }
             }
@@ -246,18 +250,18 @@ public class ClientChatFusion {
                     case DONE -> {
                         var messagePrivate = context.messagePrivateReader.get();
                         context.messagePrivateReader.reset();
-                        System.out.println(messagePrivate.loginSrc() + "@" + messagePrivate.serverSrc() + " : " + messagePrivate.msg());
-                        return false;
+                        System.out.println("(" + messagePrivate.loginSrc() + "@" + messagePrivate.serverSrc() + ") : " + messagePrivate.msg());
                     }
                 }
             }
             case 7 -> {
                 // TODO build file + log file receiving
             }
-            default -> System.out.println("OPCODE unknown or not expected, drop command");
+            default -> {
+                System.out.println("OPCODE unknown or not expected, drop command");
+            }
         }
         context.readingState = Context.ReadingState.WAITING_OPCODE;
-
         return false;
     }
 
@@ -298,7 +302,7 @@ public class ClientChatFusion {
          */
         private void processIn() {
             for (; ; ) {
-                if(assureCurrentCommandSet()) return ;
+                if (assureCurrentCommandSet()) return;
                 switch (authenticationState) {
                     case UNREGISTERED -> {
                         if (client.processInUnregistered(this)) return;
@@ -327,11 +331,12 @@ public class ClientChatFusion {
         private boolean assureCurrentCommandSet() {
             if (readingState == Context.ReadingState.WAITING_OPCODE) {
 
-                System.out.println("assureCurrentCommandSet....");
-                switch (opcodeReader.process(bufferIn))
-                {
+                //System.out.println("assureCurrentCommandSet....");
+                switch (opcodeReader.process(bufferIn)) {
                     case ERROR -> silentlyClose();
-                    case REFILL -> {return true;}
+                    case REFILL -> {
+                        return true;
+                    }
                     case DONE -> {
                         currentCommand = opcodeReader.get()[0];
                         opcodeReader.reset();
@@ -346,7 +351,7 @@ public class ClientChatFusion {
          * Try to fill bufferOut from the message queue
          */
         private void processOut() {
-            System.out.println("processOut");
+            //System.out.println("processOut");
             while (!queueCommand.isEmpty() && bufferOut.hasRemaining()) {
                 if (writer == null) {
                     var command = queueCommand.peekFirst();

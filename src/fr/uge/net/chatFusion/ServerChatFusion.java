@@ -1,9 +1,6 @@
 package fr.uge.net.chatFusion;
 
-import fr.uge.net.chatFusion.command.FusionRegisterServer;
-import fr.uge.net.chatFusion.command.FusionRouteTableSend;
-import fr.uge.net.chatFusion.command.LoginAccepted;
-import fr.uge.net.chatFusion.command.SocketAddressToken;
+import fr.uge.net.chatFusion.command.*;
 import fr.uge.net.chatFusion.reader.*;
 import fr.uge.net.chatFusion.util.StringController;
 import fr.uge.net.chatFusion.util.Writer;
@@ -62,6 +59,30 @@ public class ServerChatFusion {
                 "name=" + serverName +
                 ", sfmAddress=" + sfmAddress +
                 '}';
+    }
+
+    private String retrieveClientNameFromContext(Context context) {
+        if (context.interlocutor != Context.Interlocutor.CLIENT) {
+            throw new AssertionError("This is not a client");
+        }
+        for (var clientLogin : usersConnected.keySet()) {
+            if (usersConnected.get(clientLogin) == context) {
+                return clientLogin;
+            }
+        }
+        throw new AssertionError("Context is not in usersConnected map");
+    }
+
+    private String retrieveServerNameFromContext(Context context) {
+        if (context.interlocutor != Context.Interlocutor.SERVER) {
+            throw new AssertionError("This is not a client");
+        }
+        for (var servName : serversConnected.keySet()) {
+            if (serversConnected.get(servName) == context) {
+                return servName;
+            }
+        }
+        throw new AssertionError("Context is not in serversConnected map");
     }
 
 
@@ -125,6 +146,7 @@ public class ServerChatFusion {
         } else {
             switch (command) {
                 case "INFO" -> processInstructionInfo();
+                case "INFOCOMPLETE" -> processInstructionInfoComplete();
                 case "SHUTDOWN" -> processInstructionShutdown();
                 case "SHUTDOWNNOW" -> processInstructionShutdownNow();
                 default -> System.out.println("Unknown command");
@@ -136,7 +158,7 @@ public class ServerChatFusion {
         return selector.keys().stream().mapToInt(key -> {
             if (key.isValid() && key.channel() != serverSocketChannel) {
                 Context context = (Context) key.attachment(); // safeCase
-                if(context.interlocutor == interlocutor){
+                if (context.interlocutor == interlocutor) {
                     return 1;
                 }
                 return 0;
@@ -150,12 +172,20 @@ public class ServerChatFusion {
         System.out.println("Unregistered connected : " + nbInterlocutorActuallyConnected(Context.Interlocutor.UNKNOWN));
         System.out.println("Clients connected      : " + nbInterlocutorActuallyConnected(Context.Interlocutor.CLIENT));
         System.out.println("Servers connected      : " + nbInterlocutorActuallyConnected(Context.Interlocutor.SERVER));
-        if(nbInterlocutorActuallyConnected(Context.Interlocutor.SFM) == 1){
+        if (nbInterlocutorActuallyConnected(Context.Interlocutor.SFM) == 1) {
             System.out.println("SFM connected          : yes");
-        }
-        else{
+        } else {
             System.out.println("SFM connected          : no");
         }
+    }
+
+    private void processInstructionInfoComplete() {
+        processInstructionInfo();
+        System.out.println("in theorie :");
+        System.out.println("users connected map : ");
+        System.out.println(usersConnected);
+        System.out.println("servers connected map : ");
+        System.out.println(serversConnected);
     }
 
     private void processInstructionShutdown() {
@@ -233,12 +263,6 @@ public class ServerChatFusion {
                 // SFM or Server new connexion
                 ((Context) key.attachment()).doConnect();
             }
-        } catch (IOException e) {
-            logger.log(Level.INFO, "Connection closed with server/SFM due to IOException", e);
-            silentlyClose(key);
-        }
-
-        try {
             if (key.isValid() && key.isWritable()) {
                 ((Context) key.attachment()).doWrite();
             }
@@ -246,7 +270,7 @@ public class ServerChatFusion {
                 ((Context) key.attachment()).doRead();
             }
         } catch (IOException e) {
-            logger.log(Level.INFO, "Connection closed with client due to IOException", e);
+            logger.log(Level.INFO, "Connection closed with interlocutor due to IOException", e);
             silentlyClose(key);
         }
     }
@@ -278,10 +302,10 @@ public class ServerChatFusion {
 
     /**
      * Return true if bufferIn attach to Context is empty
-     * */
+     */
     private boolean processInInterlocutorUnknown(Context context) {
         // we attempt LOGIN_ANONYMOUS(0), SERVER_CONNEXION(15)
-        switch(context.currentCommand){
+        switch (context.currentCommand) {
             case 0 -> {
                 switch (context.loginAnonymousReader.process(context.bufferIn)) {
                     case ERROR -> context.silentlyClose();
@@ -292,7 +316,7 @@ public class ServerChatFusion {
                         var loginAnonymous = context.loginAnonymousReader.get();
                         context.loginAnonymousReader.reset();
                         if (usersConnected.containsKey(loginAnonymous.login())) {
-                            //context.queueCommand(new LoginRefused().toBuffer());
+                            context.queueCommand(new LoginRefused().toBuffer());
                             System.out.println("Connexion denied : login already used");
                         } else {
                             context.interlocutor = Context.Interlocutor.CLIENT;
@@ -304,7 +328,7 @@ public class ServerChatFusion {
                     }
                 }
             }
-            case 15 ->{
+            case 15 -> {
                 switch (context.serverConnexionReader.process(context.bufferIn)) {
                     case ERROR -> context.silentlyClose();
                     case REFILL -> {
@@ -320,7 +344,10 @@ public class ServerChatFusion {
                     }
                 }
             }
-            default -> System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInInterlocutorUnknown");
+            default -> {
+                System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInInterlocutorUnknown");
+                context.readingState = Context.ReadingState.WAITING_OPCODE;
+            }
         }
         return false;
     }
@@ -378,11 +405,11 @@ public class ServerChatFusion {
         // FILE_PRIVATE(7)
 
         if (context.currentCommand == 5) {
-            // TODO MESSAGE_PUBLIC_TRANSMIT
-            /*switch (context.messagePublicTransmitReader.process(context.bufferIn)) {*/
-            switch (context.messagePublicSendReader.process(context.bufferIn)) {
+            switch (context.messagePublicTransmitReader.process(context.bufferIn)) {
                 case ERROR -> context.silentlyClose();
-                case REFILL -> {return true;}
+                case REFILL -> {
+                    return true;
+                }
                 case DONE -> {
                     var messagePublicSend = context.messagePublicSendReader.get();
                     context.messagePublicSendReader.reset();
@@ -464,6 +491,7 @@ public class ServerChatFusion {
             // TODO FILE_PRIVATE(7)
         } else {
             System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInClient");
+            context.readingState = Context.ReadingState.WAITING_OPCODE;
             //processInstructionInfo();
         }
         return false;
@@ -475,7 +503,7 @@ public class ServerChatFusion {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private void registerToServerFusionManager() {
-        if(sfmIsConnected){
+        if (sfmIsConnected) {
             uniqueSFMContext.queueCommand(new FusionRegisterServer(serverName).toBuffer());
         }
     }
@@ -545,20 +573,17 @@ public class ServerChatFusion {
         private final BytesReader opcodeReader = new BytesReader(1);
         private final LoginAnonymousReader loginAnonymousReader = new LoginAnonymousReader();
         private final MessagePublicSendReader messagePublicSendReader = new MessagePublicSendReader();
-        // TODO message transmits reader
+        private final MessagePublicTransmitReader messagePublicTransmitReader = new MessagePublicTransmitReader();
         private final MessagePrivateReader messagePrivateReader = new MessagePrivateReader();
-        // TODO file private reader
-        // TODO fusion route table ask reader
+        private final FilePrivateReader filePrivateReader = new FilePrivateReader();
         private final FusionTableRouteResultReader fusionTableRouteResultReader = new FusionTableRouteResultReader();
-        // TODO need to change to a real serverConnexionReader !!
-        private final FusionRegisterServerReader serverConnexionReader = new FusionRegisterServerReader();
+        private final ServerConnexionReader serverConnexionReader = new ServerConnexionReader();
         // give access to ServerChatFusion.this
         private boolean closed = false;
         private Writer writer = null;
         private ReadingState readingState = ReadingState.WAITING_OPCODE;
         private Interlocutor interlocutor;
         private byte currentCommand;
-
 
         private Context(SelectionKey key, ServerChatFusion server, Interlocutor interlocutor) {
             this.key = key;
@@ -575,7 +600,7 @@ public class ServerChatFusion {
          */
         private void processIn() {
             for (; ; ) {
-                if(assureCurrentCommandSet()) return;
+                if (assureCurrentCommandSet()) return;
                 switch (interlocutor) {
                     case UNKNOWN -> {
                         if (server.processInInterlocutorUnknown(this)) return;
@@ -610,10 +635,11 @@ public class ServerChatFusion {
          */
         private boolean assureCurrentCommandSet() {
             if (readingState == ReadingState.WAITING_OPCODE) {
-                switch (opcodeReader.process(bufferIn))
-                {
+                switch (opcodeReader.process(bufferIn)) {
                     case ERROR -> silentlyClose();
-                    case REFILL -> {return true;}
+                    case REFILL -> {
+                        return true;
+                    }
                     case DONE -> {
                         currentCommand = opcodeReader.get()[0];
                         opcodeReader.reset();
@@ -668,6 +694,19 @@ public class ServerChatFusion {
         }
 
         private void silentlyClose() {
+            switch (interlocutor) {
+                case CLIENT -> {
+                    server.usersConnected.remove(server.retrieveClientNameFromContext(this));
+                    System.out.println("remove client from map");
+                }
+                case UNKNOWN -> {
+                }
+                case SFM -> server.sfmIsConnected = false;
+                case SERVER -> {
+                    server.serversConnected.remove(server.retrieveServerNameFromContext(this));
+                    System.out.println("remove server from map");
+                }
+            }
             try {
                 sc.close();
             } catch (IOException e) {
