@@ -130,20 +130,23 @@ public class ClientChatFusion {
 
         console.start();
         while (!Thread.interrupted()) {
-            Helpers.printKeys(selector); // for debug
-            System.out.println("Starting select");
+            //Helpers.printKeys(selector); // for debug
+            //System.out.println("Starting select");
             try {
                 selector.select(this::treatKey);
                 if (uniqueContext.authenticationState == Context.AuthenticationState.UNREGISTERED) {
                     uniqueContext.queueCommand(new LoginAnonymous(login).toBuffer());
+                    System.out.println("Send new LoginAnonymous");
+                }else{
+                    System.out.println("Before processInstruction()");
+                    processInstruction();
                 }
-                processInstruction();
             } catch (UncheckedIOException tunneled) {
                 console.interrupt();
                 Thread.currentThread().interrupt();
                 throw tunneled.getCause();
             }
-            System.out.println("Select finished");
+            //System.out.println("Select finished");
         }
     }
 
@@ -184,15 +187,22 @@ public class ClientChatFusion {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private boolean processInUnregistered(Context context) {
+        System.out.println("RECEIVING OPCODE = " + context.currentCommand);
         if (context.currentCommand == 2) {
             switch (context.loginAcceptedReader.process(context.bufferIn)) {
-                case ERROR -> context.silentlyClose();
+                case ERROR -> {
+                    System.out.println("Case ERROR");
+                    context.silentlyClose();
+                }
                 case REFILL -> {
+                    System.out.println("Case REFILL");
                     return true;
                 }
                 case DONE -> {
+                    System.out.println("Case DONE");
                     serverName = context.loginAcceptedReader.get().serverName();
                     context.loginAcceptedReader.reset();
+                    System.out.println("SERVER NAME = " + serverName);
                     context.authenticationState = Context.AuthenticationState.LOGGED;
                     context.readingState = Context.ReadingState.WAITING_OPCODE;
                     return false;
@@ -316,6 +326,8 @@ public class ClientChatFusion {
          */
         private boolean assureCurrentCommandSet() {
             if (readingState == Context.ReadingState.WAITING_OPCODE) {
+
+                System.out.println("assureCurrentCommandSet....");
                 switch (opcodeReader.process(bufferIn))
                 {
                     case ERROR -> silentlyClose();
@@ -334,6 +346,7 @@ public class ClientChatFusion {
          * Try to fill bufferOut from the message queue
          */
         private void processOut() {
+            System.out.println("processOut");
             while (!queueCommand.isEmpty() && bufferOut.hasRemaining()) {
                 if (writer == null) {
                     var command = queueCommand.peekFirst();

@@ -119,6 +119,7 @@ public class ServerChatFusion {
                 var token = command.split(" ");
                 var address = token[1];
                 var port = token[2];
+                System.out.println("Init fusion.....");
                 //uniqueSFMContext.queueCommand(new FusionInit(address, Integer.parseInt(port)));
             }
         } else {
@@ -188,6 +189,7 @@ public class ServerChatFusion {
         serverSocketChannel.configureBlocking(false);
         serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
 
+        /*
         try {
             sfmSocketChannel.configureBlocking(false);
             var key = sfmSocketChannel.register(selector, SelectionKey.OP_CONNECT);
@@ -200,6 +202,7 @@ public class ServerChatFusion {
             sfmIsConnected = false;
         }
         //registerToServerFusionManager();
+        */
 
         while (!Thread.interrupted()) {
             Helpers.printKeys(selector); // for debug
@@ -273,49 +276,51 @@ public class ServerChatFusion {
     //                                           server commands processing                                           //
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    /**
+     * Return true if bufferIn attach to Context is empty
+     * */
     private boolean processInInterlocutorUnknown(Context context) {
         // we attempt LOGIN_ANONYMOUS(0), SERVER_CONNEXION(15)
-
-        if (context.currentCommand == 0) {
-            switch (context.loginAnonymousReader.process(context.bufferIn)) {
-                case ERROR -> context.silentlyClose();
-                case REFILL -> {
-                    return true;
-                }
-                case DONE -> {
-                    var loginAnonymous = context.loginAnonymousReader.get();
-                    context.loginAnonymousReader.reset();
-                    if (usersConnected.containsKey(loginAnonymous.login())) {
-                        //context.queueCommand(new LoginRefused().toBuffer());
-                        System.out.println("Connexion denied : login already used");
-                    } else {
-                        context.interlocutor = Context.Interlocutor.CLIENT;
-                        usersConnected.put(loginAnonymous.login(), context);
-                        context.queueCommand(new LoginAccepted(serverName).toBuffer());
-                        System.out.println("Connexion success : " + loginAnonymous.login());
+        switch(context.currentCommand){
+            case 0 -> {
+                switch (context.loginAnonymousReader.process(context.bufferIn)) {
+                    case ERROR -> context.silentlyClose();
+                    case REFILL -> {
+                        return true;
                     }
-                    context.readingState = Context.ReadingState.WAITING_OPCODE;
-                    return false;
+                    case DONE -> {
+                        var loginAnonymous = context.loginAnonymousReader.get();
+                        context.loginAnonymousReader.reset();
+                        if (usersConnected.containsKey(loginAnonymous.login())) {
+                            //context.queueCommand(new LoginRefused().toBuffer());
+                            System.out.println("Connexion denied : login already used");
+                        } else {
+                            context.interlocutor = Context.Interlocutor.CLIENT;
+                            usersConnected.put(loginAnonymous.login(), context);
+                            context.queueCommand(new LoginAccepted(serverName).toBuffer());
+                            System.out.println("Connexion success : " + loginAnonymous.login());
+                        }
+                        context.readingState = Context.ReadingState.WAITING_OPCODE;
+                    }
                 }
             }
-        } else if (context.currentCommand == 15) {
-            switch (context.serverConnexionReader.process(context.bufferIn)) {
-                case ERROR -> context.silentlyClose();
-                case REFILL -> {
-                    return true;
-                }
-                case DONE -> {
-                    var serverConnexion = context.serverConnexionReader.get();
-                    context.serverConnexionReader.reset();
-                    // TODO Check if the current interlocutor is really a cluster's server
-                    context.interlocutor = Context.Interlocutor.SERVER;
-                    serversConnected.put(serverConnexion.name(), context);
-                    context.readingState = Context.ReadingState.WAITING_OPCODE;
-                    return false;
+            case 15 ->{
+                switch (context.serverConnexionReader.process(context.bufferIn)) {
+                    case ERROR -> context.silentlyClose();
+                    case REFILL -> {
+                        return true;
+                    }
+                    case DONE -> {
+                        var serverConnexion = context.serverConnexionReader.get();
+                        context.serverConnexionReader.reset();
+                        // TODO Check if the current interlocutor is really a cluster's server
+                        context.interlocutor = Context.Interlocutor.SERVER;
+                        serversConnected.put(serverConnexion.name(), context);
+                        context.readingState = Context.ReadingState.WAITING_OPCODE;
+                    }
                 }
             }
-        } else {
-            System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInInterlocutorUnknown");
+            default -> System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInInterlocutorUnknown");
         }
         return false;
     }
@@ -458,7 +463,7 @@ public class ServerChatFusion {
         } else if (context.currentCommand == 7) {
             // TODO FILE_PRIVATE(7)
         } else {
-            //System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInClient");
+            System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInClient");
             //processInstructionInfo();
         }
         return false;
@@ -526,7 +531,6 @@ public class ServerChatFusion {
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //                   Context: represents the state of a discussion with a specific interlocutor                   //
-
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     static private class Context {
@@ -706,7 +710,7 @@ public class ServerChatFusion {
         public void doConnect() throws IOException {
             if (!sc.finishConnect())
                 return; // the selector gave a bad hint
-            key.interestOps(SelectionKey.OP_READ); // need OP_WRITE to send FUSION_REGISTER_SERVER(8) or SERVER_CONNEXION(15)
+            key.interestOps(SelectionKey.OP_READ); // needed OP_WRITE to send FUSION_REGISTER_SERVER(8) or SERVER_CONNEXION(15) ?
         }
 
         enum ReadingState {
