@@ -2,6 +2,7 @@ package fr.uge.net.chatFusion;
 
 import fr.uge.net.chatFusion.command.LoginAnonymous;
 import fr.uge.net.chatFusion.command.MessagePrivate;
+import fr.uge.net.chatFusion.command.MessagePublicSend;
 import fr.uge.net.chatFusion.reader.*;
 import fr.uge.net.chatFusion.util.StringController;
 import fr.uge.net.chatFusion.util.Writer;
