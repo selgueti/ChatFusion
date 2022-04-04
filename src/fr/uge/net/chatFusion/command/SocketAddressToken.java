@@ -2,6 +2,7 @@ package fr.uge.net.chatFusion.command;
 
 import java.nio.ByteBuffer;
 import java.util.Objects;
+import java.util.StringJoiner;
 
 public record SocketAddressToken(byte version, byte[] address, int port) {
     public SocketAddressToken {
@@ -18,6 +19,23 @@ public record SocketAddressToken(byte version, byte[] address, int port) {
         if(port < 0 || port > 65_535){
             throw new IllegalArgumentException("port must be between 0 and 65_535");
         }
+    }
+
+    public String getStringAddress(){
+        StringJoiner sj;
+        if(version == 4){
+            sj = new StringJoiner(".");
+            for(byte o : address){
+                sj.add(String.valueOf(o));
+            }
+        }
+        else{
+            sj = new StringJoiner(":");
+            for(byte o : address){
+                sj.add(String.valueOf(o));
+            }
+        }
+        return sj.toString();
     }
 
     public ByteBuffer toBuffer() {

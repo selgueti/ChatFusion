@@ -14,6 +14,7 @@ import java.nio.channels.Channel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Scanner;
 import java.util.logging.Logger;
@@ -29,28 +30,35 @@ public class ClientChatFusion {
     private final String login;
     private final Thread console;
     private final StringController stringController = new StringController();
+    private final Path directory;
     private String serverName;
     private Context uniqueContext;
 
-    public ClientChatFusion(String login, InetSocketAddress serverAddress) throws IOException {
+    public ClientChatFusion(String login, InetSocketAddress serverAddress, Path directory) throws IOException {
         this.serverAddress = serverAddress;
         this.login = login;
         this.sc = SocketChannel.open();
         this.selector = Selector.open();
         this.console = new Thread(this::consoleRun);
+        this.directory = directory;
     }
 
     public static void main(String[] args) throws NumberFormatException, IOException {
-        if (args.length != 3) {
+        if (args.length != 4) {
             usage();
             return;
         }
-        new ClientChatFusion(args[0], new InetSocketAddress(args[1], Integer.parseInt(args[2]))).launch();
+        new ClientChatFusion(args[0], new InetSocketAddress(args[1], Integer.parseInt(args[2])), Path.of(args[3])).launch();
     }
 
     private static void usage() {
-        System.out.println("Usage : ClientChatFusion login hostname port");
+        System.out.println("Usage : ClientChatFusion login hostname port directory");
     }
+
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                            Console Thread + management of the user's instructions                              //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private void consoleRun() {
         try {
@@ -107,23 +115,37 @@ public class ClientChatFusion {
         }
     }
 
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                                                selection loop                                                  //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
     public void launch() throws IOException {
         sc.configureBlocking(false);
         var key = sc.register(selector, SelectionKey.OP_CONNECT);
         uniqueContext = new Context(key, this);
         key.attach(uniqueContext);
         sc.connect(serverAddress);
-        console.start();
 
+        console.start();
         while (!Thread.interrupted()) {
+            //Helpers.printKeys(selector); // for debug
+            //System.out.println("Starting select");
             try {
                 selector.select(this::treatKey);
-                processInstruction();
+                if (uniqueContext.authenticationState == Context.AuthenticationState.UNREGISTERED) {
+                    uniqueContext.queueCommand(new LoginAnonymous(login).toBuffer());
+                    System.out.println("Send new LoginAnonymous");
+                }else{
+                    System.out.println("Before processInstruction()");
+                    processInstruction();
+                }
             } catch (UncheckedIOException tunneled) {
                 console.interrupt();
                 Thread.currentThread().interrupt();
                 throw tunneled.getCause();
             }
+            //System.out.println("Select finished");
         }
     }
 
@@ -143,9 +165,9 @@ public class ClientChatFusion {
             // lambda call in select requires to tunnel IOException
             logger.warning(serverAddress.getHostString() + ":" + serverAddress.getPort() + " is unreachable");
             silentlyClose(key);
-            console.interrupt();
+            //console.interrupt();
             Thread.currentThread().interrupt();
-            //throw new UncheckedIOException(ioe);
+            throw new UncheckedIOException(ioe);
         }
     }
 
@@ -158,20 +180,105 @@ public class ClientChatFusion {
         }
     }
 
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                                           client commands processing                                           //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    private boolean processInUnregistered(Context context) {
+        System.out.println("RECEIVING OPCODE = " + context.currentCommand);
+        if (context.currentCommand == 2) {
+            switch (context.loginAcceptedReader.process(context.bufferIn)) {
+                case ERROR -> {
+                    System.out.println("Case ERROR");
+                    context.silentlyClose();
+                }
+                case REFILL -> {
+                    System.out.println("Case REFILL");
+                    return true;
+                }
+                case DONE -> {
+                    System.out.println("Case DONE");
+                    serverName = context.loginAcceptedReader.get().serverName();
+                    context.loginAcceptedReader.reset();
+                    System.out.println("SERVER NAME = " + serverName);
+                    context.authenticationState = Context.AuthenticationState.LOGGED;
+                    context.readingState = Context.ReadingState.WAITING_OPCODE;
+                    return false;
+                }
+            }
+        }
+        if (context.currentCommand == 3) {
+            System.out.println("Username already used, please chose another one");
+            context.silentlyClose(); // TODO make sure /*scanner and*/ main thread are closed to
+            //console.interrupt(); // TODO probably block into scanner, think about this
+        }
+        return false;
+    }
+
+    private boolean processInLogged(Context context) {
+        switch (context.currentCommand) {
+            case 4 -> {
+                switch (context.messagePublicSendReader.process(context.bufferIn)) {
+                    case ERROR -> context.silentlyClose();
+                    case REFILL -> {
+                        return true;
+                    }
+                    case DONE -> {
+                        var messagePublicSend = context.messagePublicSendReader.get();
+                        context.messagePublicSendReader.reset();
+                        System.out.println(messagePublicSend.loginSrc() + "@" + messagePublicSend.serverSrc() + " : " + messagePublicSend.msg());
+                        return false;
+                    }
+                }
+            }
+
+            case 5 -> {
+                // TODO log the MESSAGE_PUBLIC_TRANSMIT receiving
+            }
+            case 6 -> {
+                switch (context.messagePrivateReader.process(context.bufferIn)) {
+                    case ERROR -> context.silentlyClose();
+                    case REFILL -> {
+                        return true;
+                    }
+                    case DONE -> {
+                        var messagePrivate = context.messagePrivateReader.get();
+                        context.messagePrivateReader.reset();
+                        System.out.println(messagePrivate.loginSrc() + "@" + messagePrivate.serverSrc() + " : " + messagePrivate.msg());
+                        return false;
+                    }
+                }
+            }
+            case 7 -> {
+                // TODO build file + log file receiving
+            }
+            default -> System.out.println("OPCODE unknown or not expected, drop command");
+        }
+        context.readingState = Context.ReadingState.WAITING_OPCODE;
+
+        return false;
+    }
+
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                   Context: represents the state of a discussion with a specific interlocutor                   //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
     static private class Context {
         private final SelectionKey key;
         private final SocketChannel sc;
+        private final ClientChatFusion client;
         private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
         private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
-        private final ArrayDeque<ByteBuffer> queue = new ArrayDeque<>();
-        private Writer writer = null;
+        private final ArrayDeque<ByteBuffer> queueCommand = new ArrayDeque<>();
         private final BytesReader opcodeReader = new BytesReader(1);
-        private final ClientChatFusion client;
         private final LoginAcceptedReader loginAcceptedReader = new LoginAcceptedReader();
         private final MessagePublicSendReader messagePublicSendReader = new MessagePublicSendReader();
         private final MessagePrivateReader messagePrivateReader = new MessagePrivateReader();
-
         private boolean closed = false;
+        private Writer writer = null;
+
         private byte currentCommand;
         private ReadingState readingState = ReadingState.WAITING_OPCODE;
         private AuthenticationState authenticationState = AuthenticationState.UNREGISTERED;
@@ -180,9 +287,6 @@ public class ClientChatFusion {
             this.key = key;
             this.sc = (SocketChannel) key.channel();
             this.client = client;
-
-            // need to send LOGIN_ANONYMOUS(0) ?
-            queueCommand(new LoginAnonymous(client.login).toBuffer());
         }
 
         /**
@@ -193,72 +297,13 @@ public class ClientChatFusion {
          */
         private void processIn() {
             for (; ; ) {
-                if (readingState == ReadingState.WAITING_OPCODE) {
-                    if (Reader.ProcessStatus.DONE == opcodeReader.process(bufferIn)) {
-                        currentCommand = opcodeReader.get()[0];
-                        opcodeReader.reset();
-                        readingState = ReadingState.PROCESS_IN;
+                if(assureCurrentCommandSet()) return ;
+                switch (authenticationState) {
+                    case UNREGISTERED -> {
+                        if (client.processInUnregistered(this)) return;
                     }
-                }
-
-                if (authenticationState == AuthenticationState.UNREGISTERED && readingState == ReadingState.PROCESS_IN && currentCommand == 2) {
-                    switch (loginAcceptedReader.process(bufferIn)) {
-                        case REFILL -> {
-                            return;
-                        }
-                        case ERROR -> authenticationState = AuthenticationState.ERROR;
-                        case DONE -> {
-                            client.serverName = loginAcceptedReader.get().serverName();
-                            loginAcceptedReader.reset();
-                            authenticationState = AuthenticationState.LOGGED;
-                            readingState = ReadingState.WAITING_OPCODE;
-                        }
-                    }
-                }
-
-                if (authenticationState == AuthenticationState.UNREGISTERED && readingState == ReadingState.PROCESS_IN && currentCommand == 3) {
-                    logger.info("Username already used, please chose another one");
-                    silentlyClose(); // TODO make sure scanner and main thread are closed to
-                    client.console.interrupt(); // TODO probably block into scanner, think about this
-                }
-
-                if (readingState == ReadingState.PROCESS_IN) {
-                    switch (currentCommand) {
-                        case 4 -> {
-                            switch (messagePublicSendReader.process(bufferIn)) {
-                                case REFILL -> {
-                                    return;
-                                }
-                                case ERROR -> readingState = ReadingState.WAITING_OPCODE;
-                                case DONE -> {
-                                    var messagePublicSend = messagePublicSendReader.get();
-                                    messagePublicSendReader.reset();
-                                    System.out.println(messagePublicSend.loginSrc() + "@" + messagePublicSend.serverSrc() + " : " + messagePublicSend.msg());
-                                    readingState = ReadingState.WAITING_OPCODE;
-                                }
-                            }
-                        }
-
-                        case 5 -> {
-                            // TODO log the MESSAGE_PUBLIC_TRANSMIT receiving
-                        }
-                        case 6 -> {
-                            switch (messagePrivateReader.process(bufferIn)) {
-                                case REFILL -> {
-                                }
-                                case ERROR -> readingState = ReadingState.WAITING_OPCODE;
-                                case DONE -> {
-                                    var messagePrivate = messagePrivateReader.get();
-                                    messagePrivateReader.reset();
-                                    System.out.println(messagePrivate.loginSrc() + "@" + messagePrivate.serverSrc() + " : " + messagePrivate.msg());
-                                    readingState = ReadingState.WAITING_OPCODE;
-                                }
-                            }
-                        }
-                        case 7 -> {
-                            // TODO build file + log file receiving
-                        }
-                        case default -> System.out.println("processIn drop paquet....");
+                    case LOGGED -> {
+                        if (client.processInLogged(this)) return;
                     }
                 }
             }
@@ -270,26 +315,46 @@ public class ClientChatFusion {
          * @param cmd - cmd
          */
         private void queueCommand(ByteBuffer cmd) {
-            queue.addLast(cmd);
+            queueCommand.addLast(cmd);
             processOut();
             updateInterestOps();
+        }
+
+        /**
+         * Assure currentCommand is set
+         */
+        private boolean assureCurrentCommandSet() {
+            if (readingState == Context.ReadingState.WAITING_OPCODE) {
+
+                System.out.println("assureCurrentCommandSet....");
+                switch (opcodeReader.process(bufferIn))
+                {
+                    case ERROR -> silentlyClose();
+                    case REFILL -> {return true;}
+                    case DONE -> {
+                        currentCommand = opcodeReader.get()[0];
+                        opcodeReader.reset();
+                        readingState = Context.ReadingState.PROCESS_IN;
+                    }
+                }
+            }
+            return false;
         }
 
         /**
          * Try to fill bufferOut from the message queue
          */
         private void processOut() {
-            while (!queue.isEmpty()) {
+            System.out.println("processOut");
+            while (!queueCommand.isEmpty() && bufferOut.hasRemaining()) {
                 if (writer == null) {
-                    var command = queue.peekFirst();
+                    var command = queueCommand.peekFirst();
                     writer = new Writer(command);
-                    //writer.setInternalBuffer(command);
                 }
                 writer.fillBuffer(bufferOut);
                 if (writer.isDone()) {
-                    queue.removeFirst();
+                    queueCommand.removeFirst();
                     writer = null;
-                    //writer.reset();
                 }
             }
         }
@@ -365,7 +430,7 @@ public class ClientChatFusion {
         public void doConnect() throws IOException {
             if (!sc.finishConnect())
                 return; // the selector gave a bad hint
-            key.interestOps(SelectionKey.OP_READ);
+            key.interestOps(SelectionKey.OP_READ); // OP_WRITE to send the LoginAnonymous command ?
         }
 
         private boolean isLogged() {
@@ -374,11 +439,11 @@ public class ClientChatFusion {
 
         enum ReadingState {
             WAITING_OPCODE,
-            PROCESS_IN,
+            PROCESS_IN
         }
 
         private enum AuthenticationState {
-            UNREGISTERED, LOGGED, ERROR
+            UNREGISTERED, LOGGED
         }
     }
 }
