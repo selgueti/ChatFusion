@@ -2,6 +2,8 @@ package fr.uge.net.chatFusion.reader;
 
 import fr.uge.net.chatFusion.command.SocketAddressToken;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 
 public class SocketAddressTokenReader implements Reader<SocketAddressToken> {
@@ -85,7 +87,11 @@ public class SocketAddressTokenReader implements Reader<SocketAddressToken> {
         if (state != State.DONE) {
             throw new IllegalStateException();
         }
-        return new SocketAddressToken(version, address, port);
+        try {
+            return new SocketAddressToken(InetAddress.getByAddress(address), port);
+        } catch (UnknownHostException e) {
+            throw new AssertionError("the given address is not IPV4 or IPV6");
+        }
     }
 
     @Override

@@ -1,0 +1,3 @@
+RFC changes :
+     - add command 2
+     - MESSAGE_PUBLIC_SEND(5) ligne75 ->  move OPCODE 4
