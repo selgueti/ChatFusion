@@ -70,9 +70,11 @@ public class ClientChatFusion {
             try (var scanner = new Scanner(System.in)) {
                 while (scanner.hasNextLine()) {
                     var msg = scanner.nextLine();
-                    sendInstruction(msg);
-                    /*if (uniqueContext.isLogged()) {
-                    }*/
+                    if (uniqueContext.isLogged()) {
+                        sendInstruction(msg);
+                    }else{
+                        System.out.println("You can't send message, you're not logged");
+                    }
                 }
             }
             logger.info("Console thread stopping");
