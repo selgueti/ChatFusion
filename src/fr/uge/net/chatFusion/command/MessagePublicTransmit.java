@@ -5,17 +5,17 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-public record MessagePublicTransmit(String serveur, String login, String msg){
+public record MessagePublicTransmit(String server, String login, String msg){
     private static final byte OPCODE = 5;
     private final static Charset UTF8 = StandardCharsets.UTF_8;
 
     public MessagePublicTransmit{
-        Objects.requireNonNull(serveur);
+        Objects.requireNonNull(server);
         Objects.requireNonNull(login);
         Objects.requireNonNull(msg);
 
 
-        if (serveur.isEmpty()) {
+        if (server.isEmpty()) {
             throw new IllegalArgumentException("server src name should not be empty");
         }
 
@@ -25,7 +25,7 @@ public record MessagePublicTransmit(String serveur, String login, String msg){
     }
 
     public ByteBuffer toBuffer(){
-        ByteBuffer bbServerName = UTF8.encode(serveur);
+        ByteBuffer bbServerName = UTF8.encode(server);
         ByteBuffer bbLogin = UTF8.encode(login);
         ByteBuffer bbMsg = UTF8.encode(msg);
 
