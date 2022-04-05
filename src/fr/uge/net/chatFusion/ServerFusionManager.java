@@ -1,5 +1,6 @@
 package fr.uge.net.chatFusion;
 
+import fr.uge.net.chatFusion.reader.*;
 import fr.uge.net.chatFusion.util.StringController;
 import fr.uge.net.chatFusion.util.Writer;
 
@@ -8,10 +9,11 @@ import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
-import java.util.ArrayDeque;
-import java.util.Scanner;
+import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import static fr.uge.net.chatFusion.reader.Reader.ProcessStatus;
 
 public class ServerFusionManager {
     private static final int BUFFER_SIZE = 1_024;
@@ -20,6 +22,10 @@ public class ServerFusionManager {
     private final Selector selector;
     private final Thread console;
     private final StringController stringController = new StringController();
+    private final Map<String, Context> serversConnected = new HashMap<>();
+    private final ArrayDeque<ByteBuffer> fusionAsks = new ArrayDeque<>();
+    private boolean isCurrentlyOnFusion = false;
+    private int nbTableAlreadyReceive = 0;
 
 
     public ServerFusionManager(int port) throws IOException {
@@ -41,7 +47,14 @@ public class ServerFusionManager {
         System.out.println("Usage : ServerFusionManager port");
     }
 
-
+    private String retrieveServerNameFromContext(Context context) {
+        for (var servers : serversConnected.keySet()) {
+            if (serversConnected.get(servers) == context) {
+                return servers;
+            }
+        }
+        throw new AssertionError("Context is not in serversConnected map");
+    }
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //                            Console Thread + management of the user's instructions                              //
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -52,7 +65,7 @@ public class ServerFusionManager {
             try (var scanner = new Scanner(System.in)) {
                 while (!closed && scanner.hasNextLine()) {
                     var command = scanner.nextLine();
-                    if (command.equals("SHUTDOWNNOW")) {
+                    if (command.equalsIgnoreCase("SHUTDOWNNOW")) {
                         closed = true;
                         scanner.close();
                     }
@@ -89,8 +102,9 @@ public class ServerFusionManager {
     }
 
     private void treatInstruction(String command) throws IOException {
-        switch (command) {
+        switch (command.toUpperCase()) {
             case "INFO" -> processInstructionInfo();
+            case "INFOCOMPLETE" -> processInstructionInfoComplete();
             case "SHUTDOWN" -> processInstructionShutdown();
             case "SHUTDOWNNOW" -> processInstructionShutdownNow();
             default -> System.out.println("Unknown command");
@@ -108,7 +122,26 @@ public class ServerFusionManager {
     }
 
     private void processInstructionInfo() {
-        logger.info("There are currently " + nbServerActuallyConnected() + " server connected to SFM");
+        System.out.println("Servers connected : " + nbServerActuallyConnected());
+    }
+
+    private void processInstructionInfoComplete() {
+        System.out.println("============================================");
+        System.out.println("Selector information (reality) :");
+        processInstructionInfo();
+
+        System.out.print("servers connected map -> ");
+        final StringJoiner sj = new StringJoiner(", ", "{", "}");
+        //serversConnected.forEach((key, value) -> sj.add(key));
+        serversConnected.forEach((key, value) -> value.forEach(context -> {
+            try {
+                sj.add(key + context.sc.getRemoteAddress().toString());
+            } catch (IOException e) {
+                // just ignore
+            }
+        }));
+        System.out.println(sj);
+        System.out.println("============================================");
     }
 
     private void processInstructionShutdown() {
@@ -146,6 +179,7 @@ public class ServerFusionManager {
             try {
                 selector.select(this::treatKey);
                 processInstructions();
+
             } catch (UncheckedIOException tunneled) {
                 throw tunneled.getCause();
             }
@@ -171,7 +205,7 @@ public class ServerFusionManager {
                 ((Context) key.attachment()).doRead();
             }
         } catch (IOException e) {
-            logger.log(Level.INFO, "Connection closed with client due to IOException", e);
+            logger.log(Level.INFO, "Connection closed with server due to IOException", e);
             silentlyClose(key);
         }
     }
@@ -202,7 +236,73 @@ public class ServerFusionManager {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     // TODO add method for sfm commands processing
+    private ProcessStatus processInUnregistered(Context context) {
+        // we attempt FUSION_REGISTER_SERVER(8)
+        switch (context.currentCommand) {
+            case 8 -> {
+                switch (context.fusionRegisterServerReader.process(context.bufferIn)) {
+                    case ERROR -> {
+                        return ProcessStatus.ERROR;
+                    }
+                    case REFILL -> {
+                        return ProcessStatus.REFILL;
+                    }
+                    case DONE -> {
+                        var fusionRegisterServer = context.fusionRegisterServerReader.get();
+                        context.fusionRegisterServerReader.reset();
+                        var name = fusionRegisterServer.name();
 
+
+                        if (serversConnected.containsKey(name)) {
+                            serversConnected.get(name).add(context);
+                        } else {
+                            var list = new ArrayList<Context>();
+                            list.add(context);
+                            serversConnected.put(name, list);
+                        }
+                        context.authenticationState = Context.AuthenticationState.REGISTERED;
+                        System.out.println("New registered server : " + name);
+                        context.readingState = Context.ReadingState.WAITING_OPCODE;
+                    }
+                }
+            }
+            default -> {
+                System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInUnregistered");
+                context.silentlyClose();
+                return ProcessStatus.ERROR;
+            }
+        }
+        return ProcessStatus.DONE;
+    }
+
+    private ProcessStatus processInRegistered(Context context) {
+
+        switch (context.currentCommand) {
+            case 9 -> {
+                switch (context.fusionInitReader.process(context.bufferIn)){
+                    case ERROR -> {return ProcessStatus.ERROR;}
+                    case REFILL -> {
+                        return ProcessStatus.REFILL;
+                    }
+                    case DONE -> {
+                        var fusionInit = context.fusionInitReader.get();
+                        context.fusionInitReader.reset();
+
+
+
+
+                    }
+                }
+
+            }
+            default -> {
+                System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInRegistered");
+                context.silentlyClose();
+                return ProcessStatus.ERROR;
+            }
+        }
+        return ProcessStatus.DONE;
+    }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //                   Context: represents the state of a discussion with a specific interlocutor                   //
@@ -212,12 +312,22 @@ public class ServerFusionManager {
         private final SelectionKey key;
         private final SocketChannel sc;
         private final ServerFusionManager server; // we could also have Context as an instance class, which would naturally
-        // give access to ServerFusionManager.this
-        private boolean closed = false;
         private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
         private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
         private final ArrayDeque<ByteBuffer> queueCommand = new ArrayDeque<>();
+
+        // readers
+        private final BytesReader opcodeReader = new BytesReader(1);
+        private final FusionRegisterServerReader fusionRegisterServerReader = new FusionRegisterServerReader();
+        private final FusionInitReader fusionInitReader = new FusionInitReader();
+        private final FusionRouteTableSendReader fusionRouteTableSendReader = new FusionRouteTableSendReader();
+
+        // give access to ServerFusionManager.this
+        private boolean closed = false;
         private Writer writer = null;
+        private ReadingState readingState = ReadingState.WAITING_OPCODE;
+        private AuthenticationState authenticationState = AuthenticationState.UNREGISTERED;
+        private byte currentCommand;
 
         private Context(SelectionKey key, ServerFusionManager server) {
             this.key = key;
@@ -233,7 +343,49 @@ public class ServerFusionManager {
          */
         private void processIn() {
             for (; ; ) {
-                //TODO
+                switch (assureCurrentCommandSet()) {
+                    case ERROR -> {
+                        silentlyClose();
+                        return;
+                    }
+                    case REFILL -> {
+                        return;
+                    }
+                    case DONE -> {
+                        switch (authenticationState) {
+                            case UNREGISTERED -> {
+                                switch (server.processInUnregistered(this)) {
+                                    case REFILL -> {
+                                        return;
+                                    }
+                                    case ERROR -> {
+                                        silentlyClose();
+                                        return;
+                                    }
+                                    case DONE -> {
+                                        continue;
+                                    }
+                                }
+                            }
+                            case REGISTERED -> {
+                                switch (server.processInRegistered(this)) {
+                                    case REFILL -> {
+                                        return;
+                                    }
+                                    case ERROR -> {
+                                        silentlyClose();
+                                        return;
+                                    }
+                                    case DONE -> {
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+
+                }
             }
         }
 
@@ -246,6 +398,28 @@ public class ServerFusionManager {
             queueCommand.addLast(cmd);
             processOut();
             updateInterestOps();
+        }
+
+        /**
+         * Assure currentCommand is set
+         */
+        private ProcessStatus assureCurrentCommandSet() {
+            if (readingState == ReadingState.WAITING_OPCODE) {
+                switch (opcodeReader.process(bufferIn)) {
+                    case ERROR -> {
+                        return Reader.ProcessStatus.ERROR;
+                    }
+                    case REFILL -> {
+                        return Reader.ProcessStatus.REFILL;
+                    }
+                    case DONE -> {
+                        currentCommand = opcodeReader.get()[0];
+                        opcodeReader.reset();
+                        readingState = ReadingState.PROCESS_IN;
+                    }
+                }
+            }
+            return Reader.ProcessStatus.DONE;
         }
 
         /**
@@ -292,6 +466,8 @@ public class ServerFusionManager {
         }
 
         private void silentlyClose() {
+            server.serversConnected.remove(server.retrieveServerNameFromContext(this));
+            System.out.println("remove server from map");
             try {
                 sc.close();
             } catch (IOException e) {
@@ -329,6 +505,15 @@ public class ServerFusionManager {
             bufferOut.compact();
             processOut();
             updateInterestOps();
+        }
+
+        enum ReadingState {
+            WAITING_OPCODE,
+            PROCESS_IN,
+        }
+
+        enum AuthenticationState {
+            UNREGISTERED, REGISTERED
         }
     }
 }

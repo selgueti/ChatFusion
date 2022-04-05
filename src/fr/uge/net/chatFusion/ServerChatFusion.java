@@ -7,6 +7,7 @@ import fr.uge.net.chatFusion.util.Writer;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
@@ -31,6 +32,7 @@ public class ServerChatFusion {
     private Map<String, SocketAddressToken> routes = new HashMap<>();
     private boolean sfmIsConnected = false;
     private Context uniqueSFMContext;
+    private boolean firstLoop = true;
 
 
     public ServerChatFusion(String serverName, int port, InetSocketAddress sfmAddress) throws IOException {
@@ -98,7 +100,7 @@ public class ServerChatFusion {
             try (var scanner = new Scanner(System.in)) {
                 while (!closed && scanner.hasNextLine()) {
                     var command = scanner.nextLine();
-                    if (command.equals("SHUTDOWNNOW")) {
+                    if (command.equalsIgnoreCase("SHUTDOWNNOW")) {
                         closed = true;
                         scanner.close();
                     }
@@ -135,20 +137,33 @@ public class ServerChatFusion {
     }
 
     private void treatInstruction(String command) throws IOException {
-        if (command.startsWith("FUSION")) {
+        if (command.toUpperCase().startsWith("FUSION")) {
             if (!sfmIsConnected) {
                 System.out.println("ServerFusionManager is unreachable, fusion is not possible");
-            } else {
-                var token = command.split(" ", 2);
-                var address = token[1];
-                var port = token[2];
-                System.out.println("Init fusion...");
-                var inet = new InetSocketAddress(address, Integer.parseInt(port)).getAddress();
-                uniqueSFMContext.queueCommand(new FusionInit(new SocketAddressToken(inet, Integer.parseInt(port))).toBuffer());
-
+                return;
+            }
+            var tokens = command.split(" ");
+            if (tokens.length != 3) {
+                System.out.println("Invalid syntax : FUSION address port");
+                return;
+            }
+            var addressString = tokens[1];
+            int port;
+            InetAddress inetAddress;
+            try {
+                port = Integer.parseInt(tokens[2]);
+                inetAddress = new InetSocketAddress(addressString, port).getAddress();
+                System.out.println("Fusion init with server " + inetAddress + ":" + port + "...");
+                uniqueSFMContext.queueCommand(new FusionInit(new SocketAddressToken(inetAddress, port)).toBuffer());
+            } catch (NumberFormatException e) {
+                System.out.println("Wrong port given");
+            } catch (IllegalArgumentException e) {
+                System.out.println("Port is outside the range of valid port values");
+            } catch (SecurityException e) {
+                System.out.println("Security manager is present and permission to resolve the host name is denied.");
             }
         } else {
-            switch (command) {
+            switch (command.toUpperCase()) {
                 case "INFO" -> processInstructionInfo();
                 case "INFOCOMPLETE" -> processInstructionInfoComplete();
                 case "SHUTDOWN" -> processInstructionShutdown();
@@ -231,7 +246,7 @@ public class ServerChatFusion {
         serverSocketChannel.configureBlocking(false);
         serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
 
-        /*
+
         try {
             sfmSocketChannel.configureBlocking(false);
             var key = sfmSocketChannel.register(selector, SelectionKey.OP_CONNECT);
@@ -243,8 +258,7 @@ public class ServerChatFusion {
             System.out.println("ServerFusionManager is unreachable");
             sfmIsConnected = false;
         }
-        //registerToServerFusionManager();
-        */
+
 
         while (!Thread.interrupted()) {
             Helpers.printKeys(selector); // for debug
@@ -252,6 +266,13 @@ public class ServerChatFusion {
             try {
                 selector.select(this::treatKey);
                 processInstructions();
+                //TODO register to sfm if first loop
+                if(firstLoop){
+                    registerToServerFusionManager();
+                    firstLoop = false;
+                    sfmIsConnected = true;
+
+                }
             } catch (UncheckedIOException tunneled) {
                 throw tunneled.getCause();
             }
@@ -361,8 +382,7 @@ public class ServerChatFusion {
                 }
             }
             default -> {
-                System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInInterlocutorUnknown");
-                //context.readingState = Context.ReadingState.WAITING_OPCODE;
+                logger.info("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInInterlocutorUnknown");
                 context.silentlyClose();
             }
         }
