@@ -689,6 +689,8 @@ public class ServerFusionManager {
                             }
                         }
                 );
+                contextInitiator.fusionState = Context.FusionState.NO;
+                contextContacted.fusionState = Context.FusionState.NO;
                 sfm.selector.wakeup();
             }
         }
