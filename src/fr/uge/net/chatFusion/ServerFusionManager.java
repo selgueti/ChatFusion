@@ -281,7 +281,6 @@ public class ServerFusionManager {
     }
 
     private ProcessStatus processInRegistered(Context context) {
-
         switch (context.currentCommand) {
             case 9 -> {
                 switch (context.fusionInitReader.process(context.bufferIn)){
@@ -294,8 +293,11 @@ public class ServerFusionManager {
                         context.fusionInitReader.reset();
                     }
                 }
+            }
+            case 12 -> {
 
             }
+
             default -> {
                 System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInRegistered");
                 context.silentlyClose();
