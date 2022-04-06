@@ -20,6 +20,7 @@ public class SocketAddressTokenReader implements Reader<SocketAddressToken> {
         if (state == State.DONE || state == State.ERROR) {
             throw new IllegalStateException();
         }
+        //System.out.println("SATR state = " + state);
         if (state == State.WAITING_VERSION) {
             switch (versionReader.process(bb)) {
                 case REFILL -> {
@@ -30,12 +31,15 @@ public class SocketAddressTokenReader implements Reader<SocketAddressToken> {
                     return ProcessStatus.ERROR;
                 }
                 case DONE -> {
+                    //System.out.println("SATR : DONE");
                     version = versionReader.get()[0];
                     if (version != 4 && version != 6) {
                         state = State.ERROR;
+                        //System.out.println("ERROR : SATR (address is not IPV4 or IPV6)");
                         return ProcessStatus.ERROR;
                     }
                     state = State.WAITING_ADDRESS;
+                    //System.out.println("version IP : " + version);
                     if (version == 4) {
                         addressReader = new BytesReader(4);
                     } else {

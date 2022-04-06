@@ -15,6 +15,7 @@ public record SocketAddressToken(InetAddress address, int port) {
     public ByteBuffer toBuffer() {
         ByteBuffer buffer = ByteBuffer.allocate(Byte.BYTES * (address.getAddress().length + 1) + Integer.BYTES);
         buffer.put((byte)address.getAddress().length).put(address.getAddress()).putInt(port);
+        //System.out.println("SAT : " + buffer);
         return buffer;
     }
 }

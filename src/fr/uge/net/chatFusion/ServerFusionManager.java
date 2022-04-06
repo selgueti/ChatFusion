@@ -1,6 +1,7 @@
 package fr.uge.net.chatFusion;
 
 import fr.uge.net.chatFusion.reader.*;
+import fr.uge.net.chatFusion.util.EntryRouteTable;
 import fr.uge.net.chatFusion.util.StringController;
 import fr.uge.net.chatFusion.util.Writer;
 
@@ -22,7 +23,7 @@ public class ServerFusionManager {
     private final Selector selector;
     private final Thread console;
     private final StringController stringController = new StringController();
-    private final Map<String, Context> serversConnected = new HashMap<>();
+    private final Map<EntryRouteTable, Context> serversConnected = new HashMap<>();
     private final ArrayDeque<ByteBuffer> fusionAsks = new ArrayDeque<>();
     private boolean isCurrentlyOnFusion = false;
     private int nbTableAlreadyReceive = 0;
@@ -47,7 +48,7 @@ public class ServerFusionManager {
         System.out.println("Usage : ServerFusionManager port");
     }
 
-    private String retrieveServerNameFromContext(Context context) {
+    private EntryRouteTable retrieveServerNameFromContext(Context context) {
         for (var servers : serversConnected.keySet()) {
             if (serversConnected.get(servers) == context) {
                 return servers;
@@ -130,16 +131,13 @@ public class ServerFusionManager {
         System.out.println("Selector information (reality) :");
         processInstructionInfo();
 
+        System.out.println("\nMaps information (suppose) :");
         System.out.print("servers connected map -> ");
-        final StringJoiner sj = new StringJoiner(", ", "{", "}");
-        //serversConnected.forEach((key, value) -> sj.add(key));
-        serversConnected.forEach((key, value) -> value.forEach(context -> {
-            try {
-                sj.add(key + context.sc.getRemoteAddress().toString());
-            } catch (IOException e) {
-                // just ignore
-            }
-        }));
+        StringJoiner sj = new StringJoiner(", ", "{", "}");
+
+        System.out.println("map size : " + serversConnected.size());
+        serversConnected.keySet().forEach(key -> sj.add(key.name() + key.socketAddressToken().address() + ":" +key.socketAddressToken().port()));
+
         System.out.println(sj);
         System.out.println("============================================");
     }
@@ -238,30 +236,37 @@ public class ServerFusionManager {
     // TODO add method for sfm commands processing
     private ProcessStatus processInUnregistered(Context context) {
         // we attempt FUSION_REGISTER_SERVER(8)
+        //System.out.println("UNREGISERED:" + context.currentCommand);
+        //System.out.println("bufferIn SFM : " + context.bufferIn);
         switch (context.currentCommand) {
             case 8 -> {
                 switch (context.fusionRegisterServerReader.process(context.bufferIn)) {
                     case ERROR -> {
+                        //System.out.println("ERROR");
                         return ProcessStatus.ERROR;
                     }
                     case REFILL -> {
+                        //System.out.println("REFILL");
                         return ProcessStatus.REFILL;
                     }
                     case DONE -> {
+                        //System.out.println("DONE !");
                         var fusionRegisterServer = context.fusionRegisterServerReader.get();
                         context.fusionRegisterServerReader.reset();
-                        var name = fusionRegisterServer.name();
 
+                        var nameS1 = fusionRegisterServer.name();
+                        var socket1 = fusionRegisterServer.socketAddressToken();
 
-                        if (serversConnected.containsKey(name)) {
-                            serversConnected.get(name).add(context);
-                        } else {
-                            var list = new ArrayList<Context>();
-                            list.add(context);
-                            serversConnected.put(name, list);
+                        var entry = serversConnected.keySet().stream().filter(key -> key.name().equals(nameS1)).findAny();
+                        if(entry.isPresent()){
+                            System.out.println("Server already registered");
                         }
-                        context.authenticationState = Context.AuthenticationState.REGISTERED;
-                        System.out.println("New registered server : " + name);
+                        else{
+                            context.authenticationState = Context.AuthenticationState.REGISTERED;
+                            serversConnected.put(new EntryRouteTable(nameS1, socket1), context);
+                            System.out.println("New registered server : " + nameS1);
+
+                        }
                         context.readingState = Context.ReadingState.WAITING_OPCODE;
                     }
                 }
@@ -287,10 +292,6 @@ public class ServerFusionManager {
                     case DONE -> {
                         var fusionInit = context.fusionInitReader.get();
                         context.fusionInitReader.reset();
-
-
-
-
                     }
                 }
 
@@ -356,14 +357,18 @@ public class ServerFusionManager {
                             case UNREGISTERED -> {
                                 switch (server.processInUnregistered(this)) {
                                     case REFILL -> {
+                                        //System.out.println("ProcessIN refill");
                                         return;
                                     }
-                                    case ERROR -> {
-                                        silentlyClose();
-                                        return;
+                                       case ERROR -> {
+                                           //System.out.println("ProcessIN error");
+                                           silentlyClose();
+                                           return;
                                     }
                                     case DONE -> {
+                                        //System.out.println("ProcessIN done");
                                         continue;
+                                        //return;
                                     }
                                 }
                             }
@@ -383,8 +388,6 @@ public class ServerFusionManager {
                             }
                         }
                     }
-
-
                 }
             }
         }
