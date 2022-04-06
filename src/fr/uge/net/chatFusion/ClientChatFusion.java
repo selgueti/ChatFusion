@@ -2,6 +2,7 @@ package fr.uge.net.chatFusion;
 
 import fr.uge.net.chatFusion.command.*;
 import fr.uge.net.chatFusion.reader.*;
+import fr.uge.net.chatFusion.util.FileSendInfo;
 import fr.uge.net.chatFusion.util.StringController;
 import fr.uge.net.chatFusion.util.Writer;
 
@@ -15,6 +16,7 @@ import java.io.UncheckedIOException;
 import java.net.ConnectException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
 import java.nio.channels.Channel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -36,11 +38,16 @@ public class ClientChatFusion {
     private final InetSocketAddress serverAddress;
     private String login; // no final to avoid restart instead of re-name in case of conflict with server
     private final Thread console;
+    private final FileSender fileSender;
     private final StringController stringController = new StringController();
     private final String directory;
     private String serverName;
     private Context uniqueContext;
     private boolean firstSend = true;
+
+    public ByteBuffer buildFileChunk(byte[] data, String serverDst, String loginDst, String fileName, int nbChunk){
+        return new FilePrivate(serverName, login, serverDst, loginDst, fileName, nbChunk, data.length, data).toBuffer();
+    }
 
     public ClientChatFusion(String login, InetSocketAddress serverAddress, String directory) throws IOException {
         this.serverAddress = serverAddress;
@@ -112,14 +119,14 @@ public class ClientChatFusion {
                 return new MessagePrivate(serverName, login, serverDst, loginDst, msg).toBuffer();
             }
             if(instruction.startsWith("/")){
-
+                // step 1: tell fileSender to send this file.
             }
         }
     }
 
     /**
      * Processes the command from the messageController
-     */uniqueContext.queueCommand
+     */
     private void processInstruction() {
         while (stringController.hasString()) {
             uniqueContext.queueCommand(parseInstruction(stringController.poll()));
@@ -505,4 +512,49 @@ public class ClientChatFusion {
             UNREGISTERED, LOGGED
         }
     }
+
+    public class FileSender {
+        private static final Deque<FileSendInfo> fileQueue = new ArrayDeque<>(10);
+        private static final ClientChatFusion client;
+        private final static int TIMEOUT_STD = 100;
+        private final static int MAX_SLEEP_TIME = 3000;
+        private final static int COMMAND_QUEUE_FULL_TIMEOUT = 200;
+
+        // methods:
+        public boolean sendNewFile(FileSendInfo fileSendInfo){
+            synchronized (fileQueue){
+                return fileQueue.offer(fileSendInfo);
+            }
+        }
+
+        private static void senderAction() {
+            int sleepTime = TIMEOUT_STD;
+            while (!Thread.interrupted()){
+                try {
+                    synchronized (fileQueue) {
+                        if (fileQueue.isEmpty() && sleepTime < MAX_SLEEP_TIME) {
+                            sleepTime += TIMEOUT_STD;
+                        }
+                        if (!fileQueue.isEmpty()) {
+                            var fileInfo = fileQueue.peek();
+                            byte[] data = fileInfo.readChunkIntoCommand();
+                        }
+                        client.uniqueContext.queueCommand();
+                    }
+                }catch (IOException ioe){
+                    throw new UncheckedIOException(ioe);
+                }
+            }
+        }
+
+        public FileSender(ClientChatFusion clientInput)throws IOException{
+            client = clientInput;
+            try {
+                new Thread(FileSender::senderAction).start();
+            }catch (UncheckedIOException uioe){
+                throw uioe.getCause();
+            }
+        }
+    }
+
 }
