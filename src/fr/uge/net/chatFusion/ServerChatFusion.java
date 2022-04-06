@@ -50,6 +50,7 @@ public class ServerChatFusion {
         this.serverName = serverName;
         this.console = new Thread(this::consoleRun);
         this.sfmSocketChannel = SocketChannel.open();
+        routes.put(serverName, new SocketAddressToken(serverAddress.getAddress(), port));
     }
 
     public static void main(String[] args) throws NumberFormatException, IOException {
@@ -160,14 +161,19 @@ public class ServerChatFusion {
             try {
                 port = Integer.parseInt(tokens[2]);
                 inetAddress = new InetSocketAddress(addressString, port).getAddress();
+                if(inetAddress == null){
+                    System.out.println("Given address is unresolved");
+                    return;
+                }
                 System.out.println("Fusion init with server " + inetAddress + ":" + port + "...");
+                //System.out.println("BUFFER ENVOYEE = " + new FusionInit(new SocketAddressToken(inetAddress, port)).toBuffer());
                 uniqueSFMContext.queueCommand(new FusionInit(new SocketAddressToken(inetAddress, port)).toBuffer());
             } catch (NumberFormatException e) {
                 System.out.println("Wrong port given");
             } catch (IllegalArgumentException e) {
                 System.out.println("Port is outside the range of valid port values");
             } catch (SecurityException e) {
-                System.out.println("Security manager is present and permission to resolve the host name is denied.");
+                System.out.println("Security manager is present and permission to resolve the host name is denied");
             }
         } else {
             switch (command.toUpperCase()) {
@@ -268,12 +274,11 @@ public class ServerChatFusion {
 
 
         while (!Thread.interrupted()) {
-            Helpers.printKeys(selector); // for debug
-            System.out.println("Starting select");
+            //Helpers.printKeys(selector); // for debug
+            //System.out.println("Starting select");
             try {
                 selector.select(this::treatKey);
                 processInstructions();
-                //TODO register to sfm if first loop
                 if(firstLoop){
                     registerToServerFusionManager();
                     firstLoop = false;
@@ -283,12 +288,12 @@ public class ServerChatFusion {
             } catch (UncheckedIOException tunneled) {
                 throw tunneled.getCause();
             }
-            System.out.println("Select finished");
+            //System.out.println("Select finished");
         }
     }
 
     private void treatKey(SelectionKey key) {
-        Helpers.printSelectedKey(key); // for debug
+        //Helpers.printSelectedKey(key); // for debug
         try {
             if (key.isValid() && key.isAcceptable()) {
                 doAccept(key);
@@ -906,7 +911,10 @@ public class ServerChatFusion {
                 }
                 case UNKNOWN -> {
                 }
-                case SFM -> server.sfmIsConnected = false;
+                case SFM -> {
+                    server.sfmIsConnected = false;
+                    System.out.println("Disconnected with ServerFusionManager");
+                }
                 case SERVER -> {
                     server.serversConnected.remove(server.retrieveServerEntryFromContext(this));
                     System.out.println("remove server from map");
