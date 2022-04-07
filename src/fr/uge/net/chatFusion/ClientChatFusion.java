@@ -1,26 +1,31 @@
 package fr.uge.net.chatFusion;
 
-import fr.uge.net.chatFusion.command.LoginAnonymous;
-import fr.uge.net.chatFusion.command.MessagePrivate;
-import fr.uge.net.chatFusion.command.MessagePublicSend;
-import fr.uge.net.chatFusion.reader.BytesReader;
-import fr.uge.net.chatFusion.reader.LoginAcceptedReader;
-import fr.uge.net.chatFusion.reader.MessagePrivateReader;
-import fr.uge.net.chatFusion.reader.MessagePublicSendReader;
+import fr.uge.net.chatFusion.command.*;
+import fr.uge.net.chatFusion.reader.*;
+import fr.uge.net.chatFusion.util.FileSendInfo;
 import fr.uge.net.chatFusion.util.StringController;
 import fr.uge.net.chatFusion.util.Writer;
 
+import javax.tools.StandardJavaFileManager;
+
+import static fr.uge.net.chatFusion.reader.Reader.ProcessStatus;
+
+import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.ConnectException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
 import java.nio.channels.Channel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayDeque;
-import java.util.Scanner;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.util.*;
 import java.util.logging.Logger;
 
 
@@ -31,20 +36,27 @@ public class ClientChatFusion {
     private final SocketChannel sc;
     private final Selector selector;
     private final InetSocketAddress serverAddress;
-    private final String login;
+    private String login; // no final to avoid restart instead of re-name in case of conflict with server
     private final Thread console;
+    private final FileSender fileSender;
     private final StringController stringController = new StringController();
-    private final Path directory;
+    private final String directory;
     private String serverName;
     private Context uniqueContext;
     private boolean firstSend = true;
 
-    public ClientChatFusion(String login, InetSocketAddress serverAddress, Path directory) throws IOException {
+    public ByteBuffer buildFileChunk(byte[] data, String serverDst, String loginDst, String fileName, int nbChunk){
+        return new FilePrivate(serverName, login, serverDst, loginDst, fileName, nbChunk, data.length, data).toBuffer();
+    }
+
+    public ClientChatFusion(String login, InetSocketAddress serverAddress, String directory) throws IOException {
+        this.fileSender = new FileSender(this);
         this.serverAddress = serverAddress;
         this.login = login;
         this.sc = SocketChannel.open();
         this.selector = Selector.open();
         this.console = new Thread(this::consoleRun);
+        console.setDaemon(true);
         this.directory = directory;
     }
 
@@ -53,7 +65,7 @@ public class ClientChatFusion {
             usage();
             return;
         }
-        new ClientChatFusion(args[0], new InetSocketAddress(args[1], Integer.parseInt(args[2])), Path.of(args[3])).launch();
+        new ClientChatFusion(args[0], new InetSocketAddress(args[1], Integer.parseInt(args[2])), args[3]).launch();
     }
 
     private static void usage() {
@@ -70,16 +82,13 @@ public class ClientChatFusion {
             try (var scanner = new Scanner(System.in)) {
                 while (scanner.hasNextLine()) {
                     var msg = scanner.nextLine();
-                    if (uniqueContext.isLogged()) {
-                        sendInstruction(msg);
-                    }else{
-                        System.out.println("You can't send message, you're not logged");
-                    }
+                    sendInstruction(msg);
                 }
             }
             logger.info("Console thread stopping");
         } catch (InterruptedException e) {
             logger.info("Console thread has been interrupted");
+            //Thread.currentThread().interrupt();
         }
     }
 
@@ -98,22 +107,34 @@ public class ClientChatFusion {
     }
 
     private ByteBuffer parseInstruction(String instruction) {
-        if (instruction.equals("CONNECT")) {
-            System.out.println("Try to join " + serverAddress);
-            return new LoginAnonymous(login).toBuffer();
-        }
         if (!instruction.startsWith("/") && !instruction.startsWith("@")) {
             return new MessagePublicSend(serverName, login, instruction).toBuffer();
-        } else {
-            // consider for moment just private message
-            //if(instruction.startsWith("@")) {
-            instruction = instruction.substring(1);
-            var tokens = instruction.split(":", 2);
-            var loginDst = tokens[0];
-            var serverDst = tokens[1].split(" ", 2)[0];
-            var msg = tokens[1].split(" ", 2)[1];
-            return new MessagePrivate(serverName, login, serverDst, loginDst, msg).toBuffer();
         }
+        else {
+                var tokens = instruction.substring(1).split(":", 2);
+                if (tokens.length != 2){
+                    System.out.println("saisie invalide!");
+                }
+                var loginDst = tokens[0];
+                var serverDst = tokens[1].split(" ", 2)[0];
+
+            if(instruction.startsWith("@")) {
+                var msg = tokens[1].split(" ", 2)[1];
+                return new MessagePrivate(serverName, login, serverDst, loginDst, msg).toBuffer();
+            }
+            if(instruction.startsWith("/")){
+                System.out.println("detected file instruction");
+                var file = Path.of(tokens[1].split(" ", 2)[1]);
+                try {
+                    var fp = new FileSendInfo(file.toString(), loginDst, serverDst, file.getFileName().toString());
+                    fileSender.sendNewFile(fp);
+                }catch(IOException ioe){
+                    System.out.println("invalid file");
+                }
+                return ByteBuffer.allocate(0);
+            }
+        }
+        return ByteBuffer.allocate(0);
     }
 
     /**
@@ -123,6 +144,8 @@ public class ClientChatFusion {
         while (stringController.hasString()) {
             uniqueContext.queueCommand(parseInstruction(stringController.poll()));
         }
+        // check if there is a file piece to send
+
     }
 
 
@@ -137,7 +160,6 @@ public class ClientChatFusion {
         key.attach(uniqueContext);
         sc.connect(serverAddress);
         //uniqueContext.queueCommand(new LoginAnonymous(login).toBuffer());
-        console.start();
 
         while (!Thread.interrupted()) {
             //Helpers.printKeys(selector); // for debug
@@ -194,77 +216,102 @@ public class ClientChatFusion {
     //                                           client commands processing                                           //
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    private boolean processInUnregistered(Context context) {
-        //System.out.println("RECEIVING OPCODE = " + context.currentCommand);
+    private ProcessStatus processInUnregistered(Context context) {
         if (context.currentCommand == 2) {
             switch (context.loginAcceptedReader.process(context.bufferIn)) {
                 case ERROR -> {
                     //System.out.println("Case ERROR");
-                    context.silentlyClose();
+                    return ProcessStatus.ERROR;
                 }
                 case REFILL -> {
                     //System.out.println("Case REFILL");
-                    return true;
+                    return ProcessStatus.REFILL;
                 }
                 case DONE -> {
                     //System.out.println("Case DONE");
                     serverName = context.loginAcceptedReader.get().serverName();
                     context.loginAcceptedReader.reset();
                     System.out.println("Authentication to " + serverName  + " success with login : " + login);
+                    console.start();
                     context.authenticationState = Context.AuthenticationState.LOGGED;
                 }
             }
         }
         if (context.currentCommand == 3) {
-            System.out.println("Username already used, please chose another one");
-            context.silentlyClose(); // TODO make sure /*scanner and*/ main thread are closed to
-            //console.interrupt(); // TODO probably block into scanner, think about this
+            System.out.println("Username already used, please re-start and chose another one");
+            //console.interrupt(); // not need because console was not started yet at this point
+            context.silentlyClose();
+            Thread.currentThread().interrupt(); // we are in main thread, so this closes the main program.
         }
         context.readingState = Context.ReadingState.WAITING_OPCODE;
-        return false;
+        return ProcessStatus.DONE;
     }
 
-    private boolean processInLogged(Context context) {
+    private Integer hashFileInfo(FilePrivate fp){
+        return Objects.hash(fp.serverSrc(), fp.loginSrc(), fp.fileName());
+    }
+
+    private void writeFilePiece(FilePrivate fp){
+        Path filepath = Path.of(directory, fp.fileName());
+        try{
+            var file = Files.write(filepath, fp.bytes(), StandardOpenOption.APPEND);
+        }catch(IOException ioe){
+            logger.info("could not write file piece because:" + ioe.getCause());
+        }
+        return;
+    }
+
+    private ProcessStatus processInLogged(Context context) {
         switch (context.currentCommand) {
-            case 4 -> {
-                switch (context.messagePublicSendReader.process(context.bufferIn)) {
-                    case ERROR -> context.silentlyClose();
-                    case REFILL -> {
-                        return true;
-                    }
+            case 5 -> {
+                switch(context.messagePublicTransmitReader.process(context.bufferIn)){
+                    case ERROR -> {return ProcessStatus.ERROR;}
+                    case REFILL -> {return ProcessStatus.REFILL;}
                     case DONE -> {
-                        var messagePublicSend = context.messagePublicSendReader.get();
-                        context.messagePublicSendReader.reset();
-                        System.out.println(messagePublicSend.loginSrc() + "@" + messagePublicSend.serverSrc() + " : " + messagePublicSend.msg());
+                        var messagePublic = context.messagePublicTransmitReader.get();
+                        context.messagePrivateReader.reset();
+                        System.out.println(messagePublic.login() + "@" + messagePublic.server() + " PUBLIC: " + messagePublic.msg());
                     }
                 }
             }
-
-            case 5 -> {
-                // TODO log the MESSAGE_PUBLIC_TRANSMIT receiving
-            }
             case 6 -> {
                 switch (context.messagePrivateReader.process(context.bufferIn)) {
-                    case ERROR -> context.silentlyClose();
+                    case ERROR -> {return ProcessStatus.ERROR;}
                     case REFILL -> {
-                        return true;
+                        return ProcessStatus.REFILL;
                     }
                     case DONE -> {
                         var messagePrivate = context.messagePrivateReader.get();
                         context.messagePrivateReader.reset();
-                        System.out.println("(" + messagePrivate.loginSrc() + "@" + messagePrivate.serverSrc() + ") : " + messagePrivate.msg());
+                        System.out.println(messagePrivate.loginSrc() + "@" + messagePrivate.serverSrc() + " : " + messagePrivate.msg());
                     }
                 }
             }
             case 7 -> {
                 // TODO build file + log file receiving
+                switch (context.fileReader.process(context.bufferIn)){
+                    case ERROR -> {return ProcessStatus.ERROR;}
+                    case REFILL -> {return ProcessStatus.REFILL;}
+                    case DONE -> {
+                        var filePiece = context.fileReader.get();
+                        var fileId = hashFileInfo(filePiece);
+                        writeFilePiece(filePiece);
+                        context.fileTransferProgress.merge(fileId, 1, Integer::sum);
+                        if (context.fileTransferProgress.get(fileId) == filePiece.nbBlocks()){
+                            System.out.println("received file: " + filePiece.fileName()+ " can be found in folder " + directory);
+                        }
+                    }
+                }
             }
             default -> {
-                System.out.println("OPCODE unknown or not expected, drop command");
+                System.out.println("OPCODE unknown or unexpected, drop command");
+                context.silentlyClose();
+                Thread.currentThread().interrupt();
+                return ProcessStatus.ERROR;
             }
         }
         context.readingState = Context.ReadingState.WAITING_OPCODE;
-        return false;
+        return ProcessStatus.DONE;
     }
 
 
@@ -281,8 +328,10 @@ public class ClientChatFusion {
         private final ArrayDeque<ByteBuffer> queueCommand = new ArrayDeque<>();
         private final BytesReader opcodeReader = new BytesReader(1);
         private final LoginAcceptedReader loginAcceptedReader = new LoginAcceptedReader();
-        private final MessagePublicSendReader messagePublicSendReader = new MessagePublicSendReader();
+        private final MessagePublicTransmitReader messagePublicTransmitReader = new MessagePublicTransmitReader();
         private final MessagePrivateReader messagePrivateReader = new MessagePrivateReader();
+        private final FilePrivateReader fileReader = new FilePrivateReader();
+        private final Map<Integer, Integer> fileTransferProgress = new HashMap<>();
         private boolean closed = false;
         private Writer writer = null;
 
@@ -304,15 +353,35 @@ public class ClientChatFusion {
          */
         private void processIn() {
             for (; ; ) {
-                if (assureCurrentCommandSet()) return;
-                switch (authenticationState) {
-                    case UNREGISTERED -> {
-                        if (client.processInUnregistered(this)) return;
-                    }
-                    case LOGGED -> {
-                        if (client.processInLogged(this)) return;
+                switch(assureCurrentCommandSet()){
+                    case ERROR -> {silentlyClose(); return;}
+                    case REFILL -> {return;}
+                    case DONE -> {
+                        switch (authenticationState) {
+                            case UNREGISTERED -> {
+                                switch (client.processInUnregistered(this)){
+                                    case REFILL -> {return;}
+                                    case DONE -> {continue;}
+                                    case ERROR -> {
+                                        silentlyClose();
+                                        return;
+                                    }
+                                }
+                            }
+                            case LOGGED -> {
+                                switch (client.processInLogged(this)){
+                                    case REFILL -> {return;}
+                                    case DONE -> {continue;}
+                                    case ERROR -> {
+                                        silentlyClose();
+                                        return;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+
             }
         }
 
@@ -330,23 +399,25 @@ public class ClientChatFusion {
         /**
          * Assure currentCommand is set
          */
-        private boolean assureCurrentCommandSet() {
+        private ProcessStatus assureCurrentCommandSet() {
             if (readingState == Context.ReadingState.WAITING_OPCODE) {
 
                 //System.out.println("assureCurrentCommandSet....");
                 switch (opcodeReader.process(bufferIn)) {
-                    case ERROR -> silentlyClose();
+                    case ERROR -> {
+                        return ProcessStatus.ERROR;}
                     case REFILL -> {
-                        return true;
+                        return ProcessStatus.REFILL;
                     }
                     case DONE -> {
                         currentCommand = opcodeReader.get()[0];
                         opcodeReader.reset();
                         readingState = Context.ReadingState.PROCESS_IN;
+                        return ProcessStatus.DONE;
                     }
                 }
             }
-            return false;
+            return ProcessStatus.DONE;
         }
 
         /**
@@ -454,4 +525,55 @@ public class ClientChatFusion {
             UNREGISTERED, LOGGED
         }
     }
+
+    public class FileSender {
+        private static final Deque<FileSendInfo> fileQueue = new ArrayDeque<>(10);
+        private static ClientChatFusion client;
+        private final static int TIMEOUT_STD = 100;
+        private final static int MAX_SLEEP_TIME = 3000;
+        private final static int COMMAND_QUEUE_FULL_TIMEOUT = 200;
+
+        // methods:
+        public boolean sendNewFile(FileSendInfo fileSendInfo){
+            synchronized (fileQueue){
+                return fileQueue.offer(fileSendInfo);
+            }
+        }
+
+        private static void senderAction() {
+            int sleepTime = TIMEOUT_STD;
+            for(;;){
+                try {
+                    synchronized (fileQueue) {
+                        if (fileQueue.isEmpty() && sleepTime < MAX_SLEEP_TIME) {
+                            sleepTime += sleepTime * 2;
+                        }
+                        if (!fileQueue.isEmpty()) {
+                            sleepTime = TIMEOUT_STD;
+                            var fileInfo = fileQueue.peek();
+                            client.uniqueContext.queueCommand(fileInfo.buildFieChunk(client));
+                            client.selector.wakeup();
+                        }
+                    }
+                }catch (IOException ioe){
+                    throw new UncheckedIOException(ioe);
+                }
+                try {
+                    Thread.sleep(sleepTime);
+                }catch (InterruptedException ie){
+                    return;
+                }
+            }
+        }
+
+        public FileSender(ClientChatFusion clientInput)throws IOException{
+            client = clientInput;
+            try {
+                new Thread(FileSender::senderAction).start();
+            }catch (UncheckedIOException uioe){
+                throw uioe.getCause();
+            }
+        }
+    }
+
 }
