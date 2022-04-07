@@ -2,17 +2,23 @@ package fr.uge.net.chatFusion;
 
 import fr.uge.net.chatFusion.command.*;
 import fr.uge.net.chatFusion.reader.*;
+import fr.uge.net.chatFusion.util.EntryRouteTable;
 import fr.uge.net.chatFusion.util.StringController;
 import fr.uge.net.chatFusion.util.Writer;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
 import java.util.*;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import static fr.uge.net.chatFusion.reader.Reader.ProcessStatus;
 
 public class ServerChatFusion {
     private static final int BUFFER_SIZE = 1_024;
@@ -24,21 +30,29 @@ public class ServerChatFusion {
     private final Thread console;
     private final StringController stringController = new StringController();
     private final SocketChannel sfmSocketChannel;
-    private final Map<String, Context> serversConnected = new HashMap<>();
+    //private final Map<String, Context> serversConnected = new HashMap<>();
+    private final Map<EntryRouteTable, Context> serversConnected = new HashMap<>();
+
     private final Map<String, Context> usersConnected = new HashMap<>();
+    private final InetSocketAddress serverAddress;
+    private final int port;
     private Map<String, SocketAddressToken> routes = new HashMap<>();
     private boolean sfmIsConnected = false;
     private Context uniqueSFMContext;
-
+    private boolean firstLoop = true;
 
     public ServerChatFusion(String serverName, int port, InetSocketAddress sfmAddress) throws IOException {
         serverSocketChannel = ServerSocketChannel.open();
-        serverSocketChannel.bind(new InetSocketAddress(port));
+        serverAddress = new InetSocketAddress("localhost", port);
+        this.port = port;
+        serverSocketChannel.bind(serverAddress);
         selector = Selector.open();
         this.sfmAddress = sfmAddress;
         this.serverName = serverName;
         this.console = new Thread(this::consoleRun);
         this.sfmSocketChannel = SocketChannel.open();
+        routes.put(serverName, new SocketAddressToken(serverAddress.getAddress(), port));
+        //routes.put("server3", new SocketAddressToken(new InetSocketAddress("localhost", port).getAddress(), 9999));
     }
 
     public static void main(String[] args) throws NumberFormatException, IOException {
@@ -73,13 +87,13 @@ public class ServerChatFusion {
         throw new AssertionError("Context is not in usersConnected map");
     }
 
-    private String retrieveServerNameFromContext(Context context) {
+    private EntryRouteTable retrieveServerEntryFromContext(Context context) {
         if (context.interlocutor != Context.Interlocutor.SERVER) {
-            throw new AssertionError("This is not a client");
+            throw new AssertionError("This is not a server");
         }
-        for (var servName : serversConnected.keySet()) {
-            if (serversConnected.get(servName) == context) {
-                return servName;
+        for (var entry : serversConnected.keySet()) {
+            if (serversConnected.get(entry) == context) {
+                return entry;
             }
         }
         throw new AssertionError("Context is not in serversConnected map");
@@ -96,7 +110,7 @@ public class ServerChatFusion {
             try (var scanner = new Scanner(System.in)) {
                 while (!closed && scanner.hasNextLine()) {
                     var command = scanner.nextLine();
-                    if (command.equals("SHUTDOWNNOW")) {
+                    if (command.equalsIgnoreCase("SHUTDOWNNOW")) {
                         closed = true;
                         scanner.close();
                     }
@@ -133,18 +147,38 @@ public class ServerChatFusion {
     }
 
     private void treatInstruction(String command) throws IOException {
-        if (command.startsWith("FUSION")) {
+        if (command.toUpperCase().startsWith("FUSION")) {
             if (!sfmIsConnected) {
                 System.out.println("ServerFusionManager is unreachable, fusion is not possible");
-            } else {
-                var token = command.split(" ");
-                var address = token[1];
-                var port = token[2];
-                System.out.println("Init fusion.....");
-                //uniqueSFMContext.queueCommand(new FusionInit(address, Integer.parseInt(port)));
+                return;
+            }
+            var tokens = command.split(" ");
+            if (tokens.length != 3) {
+                System.out.println("Invalid syntax : FUSION address port");
+                return;
+            }
+            var addressString = tokens[1];
+            int port;
+            InetAddress inetAddress;
+            try {
+                port = Integer.parseInt(tokens[2]);
+                inetAddress = new InetSocketAddress(addressString, port).getAddress();
+                if (inetAddress == null) {
+                    System.out.println("Given address is unresolved");
+                    return;
+                }
+                System.out.println("Fusion init with server " + inetAddress + ":" + port + "...");
+                //System.out.println("BUFFER ENVOYEE = " + new FusionInit(new SocketAddressToken(inetAddress, port)).toBuffer());
+                uniqueSFMContext.queueCommand(new FusionInit(new SocketAddressToken(inetAddress, port)).toBuffer());
+            } catch (NumberFormatException e) {
+                System.out.println("Wrong port given");
+            } catch (IllegalArgumentException e) {
+                System.out.println("Port is outside the range of valid port values");
+            } catch (SecurityException e) {
+                System.out.println("Security manager is present and permission to resolve the host name is denied");
             }
         } else {
-            switch (command) {
+            switch (command.toUpperCase()) {
                 case "INFO" -> processInstructionInfo();
                 case "INFOCOMPLETE" -> processInstructionInfoComplete();
                 case "SHUTDOWN" -> processInstructionShutdown();
@@ -161,10 +195,8 @@ public class ServerChatFusion {
                 if (context.interlocutor == interlocutor) {
                     return 1;
                 }
-                return 0;
-            } else {
-                return 0;
             }
+            return 0;
         }).sum();
     }
 
@@ -172,24 +204,31 @@ public class ServerChatFusion {
         System.out.println("Unregistered connected : " + nbInterlocutorActuallyConnected(Context.Interlocutor.UNKNOWN));
         System.out.println("Clients connected      : " + nbInterlocutorActuallyConnected(Context.Interlocutor.CLIENT));
         System.out.println("Servers connected      : " + nbInterlocutorActuallyConnected(Context.Interlocutor.SERVER));
-        if (nbInterlocutorActuallyConnected(Context.Interlocutor.SFM) == 1) {
-            System.out.println("SFM connected          : yes");
-        } else {
-            System.out.println("SFM connected          : no");
-        }
+        System.out.println("SFM connected          : " + (nbInterlocutorActuallyConnected(Context.Interlocutor.SFM) == 1 ? "yes" : "no"));
     }
 
     private void processInstructionInfoComplete() {
+
+        System.out.println("============================================");
+        System.out.println("Selector information (reality) :");
         processInstructionInfo();
-        System.out.println("in theorie :");
-        System.out.println("users connected map : ");
-        System.out.println(usersConnected);
-        System.out.println("servers connected map : ");
-        System.out.println(serversConnected);
+
+        System.out.println("\nMaps information (suppose) :");
+        System.out.print("users connected map   -> ");
+        final StringJoiner sj = new StringJoiner(", ", "{", "}");
+        usersConnected.forEach((key, value) -> sj.add(key));
+        System.out.println(sj);
+
+        System.out.print("servers connected map -> ");
+        final StringJoiner sj2 = new StringJoiner(", ", "{", "}");
+        serversConnected.forEach((key, value) -> sj2.add(key.name() + key.socketAddressToken().address()));
+        System.out.println(sj2);
+        System.out.println("SFM connected          : " + (sfmIsConnected ? "yes" : "no"));
+        System.out.println("============================================");
     }
 
     private void processInstructionShutdown() {
-        logger.info("shutdown...");
+        System.out.println("shutdown...");
         try {
             serverSocketChannel.close();
         } catch (IOException e) {
@@ -198,7 +237,7 @@ public class ServerChatFusion {
     }
 
     private void processInstructionShutdownNow() throws IOException {
-        logger.info("shutdown now...");
+        System.out.println("shutdown now...");
         for (SelectionKey key : selector.keys()) {
             if (key.channel() != serverSocketChannel && key.isValid()) {
                 key.channel().close();
@@ -219,7 +258,27 @@ public class ServerChatFusion {
         serverSocketChannel.configureBlocking(false);
         serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
 
-        /*
+        connexionToSFM();
+
+        while (!Thread.interrupted()) {
+            //Helpers.printKeys(selector); // for debug
+            //System.out.println("Starting select");
+            try {
+                selector.select(this::treatKey);
+                processInstructions();
+                if (firstLoop && sfmIsConnected) {
+                    registerToServerFusionManager();
+                    firstLoop = false;
+                    sfmIsConnected = true;
+                }
+            } catch (UncheckedIOException tunneled) {
+                throw tunneled.getCause();
+            }
+            //System.out.println("Select finished");
+        }
+    }
+
+    private void connexionToSFM() {
         try {
             sfmSocketChannel.configureBlocking(false);
             var key = sfmSocketChannel.register(selector, SelectionKey.OP_CONNECT);
@@ -231,24 +290,10 @@ public class ServerChatFusion {
             System.out.println("ServerFusionManager is unreachable");
             sfmIsConnected = false;
         }
-        //registerToServerFusionManager();
-        */
-
-        while (!Thread.interrupted()) {
-            Helpers.printKeys(selector); // for debug
-            System.out.println("Starting select");
-            try {
-                selector.select(this::treatKey);
-                processInstructions();
-            } catch (UncheckedIOException tunneled) {
-                throw tunneled.getCause();
-            }
-            System.out.println("Select finished");
-        }
     }
 
     private void treatKey(SelectionKey key) {
-        Helpers.printSelectedKey(key); // for debug
+        //Helpers.printSelectedKey(key); // for debug
         try {
             if (key.isValid() && key.isAcceptable()) {
                 doAccept(key);
@@ -258,11 +303,24 @@ public class ServerChatFusion {
             throw new UncheckedIOException(ioe);
         }
 
-        try {
-            if (key.isValid() && key.isConnectable()) {
-                // SFM or Server new connexion
+        if (key.isValid() && key.isConnectable()) {
+            // SFM or Server new connexion
+            try {
                 ((Context) key.attachment()).doConnect();
+            } catch (IOException e) {
+                Context context = (Context) key.attachment();
+                if(context.interlocutor == Context.Interlocutor.SFM){
+                    System.out.println("SFM is unreachable");
+                    sfmIsConnected = false;
+                }
+                else{
+                    logger.log(Level.INFO, "Connection closed with interlocutor due to IOException", e);
+                }
             }
+        }
+
+
+        try {
             if (key.isValid() && key.isWritable()) {
                 ((Context) key.attachment()).doWrite();
             }
@@ -281,9 +339,13 @@ public class ServerChatFusion {
             logger.info("Selector lied, no accept");
             return;
         }
+        //System.out.println("DO ACCEPTE - 1");
         sc.configureBlocking(false);
         var selectionKey = sc.register(selector, SelectionKey.OP_READ);
         selectionKey.attach(new Context(selectionKey, this, Context.Interlocutor.UNKNOWN));
+        System.out.println("NEW CONNEXION FROM " + sc.getRemoteAddress());
+        processInstructionInfoComplete();
+        //System.out.println("DO ACCEPTE - 2");
     }
 
     private void silentlyClose(SelectionKey key) {
@@ -303,14 +365,16 @@ public class ServerChatFusion {
     /**
      * Return true if bufferIn attach to Context is empty
      */
-    private boolean processInInterlocutorUnknown(Context context) {
+    private ProcessStatus processInInterlocutorUnknown(Context context) {
         // we attempt LOGIN_ANONYMOUS(0), SERVER_CONNEXION(15)
         switch (context.currentCommand) {
             case 0 -> {
                 switch (context.loginAnonymousReader.process(context.bufferIn)) {
-                    case ERROR -> context.silentlyClose();
+                    case ERROR -> {
+                        return ProcessStatus.ERROR;
+                    }
                     case REFILL -> {
-                        return true;
+                        return ProcessStatus.REFILL;
                     }
                     case DONE -> {
                         var loginAnonymous = context.loginAnonymousReader.get();
@@ -329,172 +393,292 @@ public class ServerChatFusion {
                 }
             }
             case 15 -> {
+                System.out.println("received opcode 15");
                 switch (context.serverConnexionReader.process(context.bufferIn)) {
-                    case ERROR -> context.silentlyClose();
+                    case ERROR -> {
+                        System.out.println("error reading opcode 15");
+                        return ProcessStatus.ERROR;
+                    }
                     case REFILL -> {
-                        return true;
+                        System.out.println("refill reading opcode 15");
+                        return ProcessStatus.REFILL;
                     }
                     case DONE -> {
+                        System.out.println("done reading opcode 15");
                         var serverConnexion = context.serverConnexionReader.get();
+                        System.out.println("new connexion from " + serverConnexion.name() + " at " + serverConnexion.socketAddressToken());
                         context.serverConnexionReader.reset();
                         // TODO Check if the current interlocutor is really a cluster's server
                         context.interlocutor = Context.Interlocutor.SERVER;
-                        serversConnected.put(serverConnexion.name(), context);
+                        serversConnected.put(new EntryRouteTable(serverConnexion.name(), serverConnexion.socketAddressToken()), context);
+                        context.readingState = Context.ReadingState.WAITING_OPCODE;
+                        System.out.println(serverConnexion.name() + serverConnexion.socketAddressToken().address() + ":" + serverConnexion.socketAddressToken().port() + " is now registered");
+                    }
+                }
+            }
+            default -> {
+                logger.info("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInInterlocutorUnknown");
+                context.silentlyClose();
+            }
+        }
+        return ProcessStatus.DONE;
+    }
+
+    private ProcessStatus processInSFM(Context context) {
+        // we attempt FUSION_INEXISTANT_SERVER(10)
+        // FUSION_ROUTE_TABLE_ASK(11)
+        // FUSION_INVALID_NAME(13)
+        // FUSION_TABLE_ROUTE_RESULT(14)
+        //System.out.println("currentCommand = " + context.currentCommand);
+        switch (context.currentCommand) {
+            case 10 -> {
+                System.out.println("The server you are trying to merge with does not exist");
+                context.readingState = Context.ReadingState.WAITING_OPCODE;
+            }
+            case 11 -> {
+                System.out.println("Sending of routes table... : " + new FusionRouteTableSend(routes.size(), routes).toBuffer());
+                context.queueCommand(new FusionRouteTableSend(routes.size(), routes).toBuffer());
+                context.readingState = Context.ReadingState.WAITING_OPCODE;
+            }
+            case 13 -> {
+                System.out.println("Merge is not possible server names are not all distinct");
+                context.readingState = Context.ReadingState.WAITING_OPCODE;
+            }
+            case 14 -> {
+                System.out.println("NEW TABLE ROUTES RECEIVE");
+                //System.out.println("BUFFERIN  = " + context.bufferIn);
+
+                switch (context.fusionTableRouteResultReader.process(context.bufferIn)) {
+                    case ERROR -> {
+                        System.out.println("processInSFM ERROR");
+                        return ProcessStatus.ERROR;
+                    }
+                    case REFILL -> {
+                        System.out.println("processInSFM REFILL = " + context.bufferIn);
+                        return ProcessStatus.REFILL;
+                    }
+                    case DONE -> {
+                        System.out.println("processInSFM DONE");
+                        var fusionTableRouteResult = context.fusionTableRouteResultReader.get();
+                        context.fusionTableRouteResultReader.reset();
+                        System.out.println("New Routes Table receive :");
+                        fusionTableRouteResult.routes().entrySet().forEach(entry -> System.out.println(entry.getKey() + entry.getValue().address() + " : " + entry.getValue().port()));
+                        routes = fusionTableRouteResult.routes();
+                        for (var routeName : routes.keySet()) {
+                            var entry  = new EntryRouteTable(routeName, routes.get(routeName));
+                            if (serverName.compareTo(routeName) < 0 && !serversConnected.containsKey(entry)) {
+                                var address = routes.get(routeName).address().getHostAddress();
+                                var port = routes.get(routeName).port();
+                                connectToAnotherServer(routeName, new InetSocketAddress(address, port));
+                                System.out.println("Sending new connexion ...");
+
+                                //registerToAnotherServer(routeName, new InetSocketAddress(address, port), context); // TODO
+                            }
+                        }
                         context.readingState = Context.ReadingState.WAITING_OPCODE;
                     }
                 }
             }
             default -> {
-                System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInInterlocutorUnknown");
-                context.readingState = Context.ReadingState.WAITING_OPCODE;
+                System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInSFM");
+                context.silentlyClose();
+                return ProcessStatus.ERROR;
             }
         }
-        return false;
+        return ProcessStatus.DONE;
     }
 
-    private boolean processInSFM(Context context) {
-        // we attempt FUSION_INEXISTANT_SERVER(10)
-        // FUSION_ROUTE_TABLE_ASK(11)
-        // FUSION_INVALID_NAME(13)
-        // FUSION_TABLE_ROUTE_RESULT(14)
-
-        if (context.currentCommand == 10) {
-            System.out.println("The server you are trying to merge with does not exist");
-            context.readingState = Context.ReadingState.WAITING_OPCODE;
-            return false;
-
-        } else if (context.currentCommand == 11) {
-            // sending routes table
-            context.queueCommand(new FusionRouteTableSend(routes.size(), routes).toBuffer());
-            context.readingState = Context.ReadingState.WAITING_OPCODE;
-            return false;
-
-        } else if (context.currentCommand == 13) {
-            System.out.println("Merge is not possible server names are not all distinct");
-            context.readingState = Context.ReadingState.WAITING_OPCODE;
-        } else if (context.currentCommand == 14) {
-            switch (context.fusionTableRouteResultReader.process(context.bufferIn)) {
-                case ERROR -> context.silentlyClose();
-                case REFILL -> {
-                    return true;
-                }
-                case DONE -> {
-                    var fusionTableRouteResult = context.fusionTableRouteResultReader.get();
-                    context.fusionTableRouteResultReader.reset();
-                    routes = fusionTableRouteResult.routes();
-                    for (var routesName : routes.keySet()) {
-                        if (serverName.compareTo(routesName) < 0 && !serversConnected.containsKey(routesName)) {
-                            var address = routes.get(routesName).getStringAddress();
-                            var port = routes.get(routesName).port();
-                            registerToAnotherServer(routesName, new InetSocketAddress(address, port));
-                        }
-                    }
-                    context.readingState = Context.ReadingState.WAITING_OPCODE;
-                    return false;
-                }
-            }
-        } else {
-            System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInSFM");
-        }
-        return false;
-    }
-
-    private boolean processInServer(Context context) {
+    private ProcessStatus processInServer(Context context) {
         // we attempt MESSAGE_PUBLIC_TRANSMIT(5)
         // MESSAGE_PRIVATE(6)
         // FILE_PRIVATE(7)
 
-        if (context.currentCommand == 5) {
-            switch (context.messagePublicTransmitReader.process(context.bufferIn)) {
-                case ERROR -> context.silentlyClose();
-                case REFILL -> {
-                    return true;
-                }
-                case DONE -> {
-                    var messagePublicSend = context.messagePublicSendReader.get();
-                    context.messagePublicSendReader.reset();
-                    broadcastPublicMessage(messagePublicSend.toBuffer());
-                    context.readingState = Context.ReadingState.WAITING_OPCODE;
-                    return false;
-                }
-            }
-        } else if (context.currentCommand == 6) {
-            switch (context.messagePrivateReader.process(context.bufferIn)) {
-                case ERROR -> context.silentlyClose();
-                case REFILL -> {
-                    return true;
-                }
-                case DONE -> {
-                    var messagePrivate = context.messagePrivateReader.get();
-                    context.messagePrivateReader.reset();
-                    if (usersConnected.containsKey(messagePrivate.loginDst())) {
-                        var userContext = usersConnected.get(messagePrivate.loginDst());
-                        userContext.queueCommand(messagePrivate.toBuffer());
+        switch (context.currentCommand) {
+            case 5 -> {
+                switch (context.messagePublicTransmitReader.process(context.bufferIn)) {
+                    case ERROR -> {
+                        return ProcessStatus.ERROR;
                     }
-                    context.readingState = Context.ReadingState.WAITING_OPCODE;
-                    return false;
+                    case REFILL -> {
+                        return ProcessStatus.REFILL;
+                    }
+                    case DONE -> {
+                        var messagePublicSend = context.messagePublicSendReader.get();
+                        context.messagePublicSendReader.reset();
+                        broadcastPublicMessage(messagePublicSend.toBuffer());
+                        context.readingState = Context.ReadingState.WAITING_OPCODE;
+                    }
                 }
             }
-        } else if (context.currentCommand == 7) {
-            // TODO FILE_PRIVATE(7);
-        } else {
-            System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInServer");
+            case 6 -> {
+                switch (context.messagePrivateReader.process(context.bufferIn)) {
+                    case ERROR -> {
+                        return ProcessStatus.ERROR;
+                    }
+                    case REFILL -> {
+                        return ProcessStatus.REFILL;
+                    }
+                    case DONE -> {
+                        var messagePrivate = context.messagePrivateReader.get();
+                        context.messagePrivateReader.reset();
+
+                        if (messagePrivate.serverDst().equals(serverName)) {
+                            if (usersConnected.containsKey(messagePrivate.loginDst())) {
+                                var userContext = usersConnected.get(messagePrivate.loginDst());
+                                userContext.queueCommand(messagePrivate.toBuffer());
+                            } else {
+                                System.out.println("message private drop, client unknown");
+                            }
+                        } else {
+                            var entry = serversConnected.keySet().stream().filter(name -> name.name().equals(messagePrivate.serverDst())).findAny();
+                            if (entry.isEmpty()) {
+                                System.out.println("message private drop, server unknown");
+                            } else {
+                                var serverContext = serversConnected.get(entry.get());
+                                serverContext.queueCommand(messagePrivate.toBuffer());
+                            }
+                        }
+                        context.readingState = Context.ReadingState.WAITING_OPCODE;
+                    }
+                }
+            }
+
+            case 7 -> {
+                switch (context.filePrivateReader.process(context.bufferIn)) {
+                    case ERROR -> {
+                        return ProcessStatus.ERROR;
+                    }
+                    case REFILL -> {
+                        return ProcessStatus.REFILL;
+                    }
+                    case DONE -> {
+                        var filePrivate = context.filePrivateReader.get();
+                        context.filePrivateReader.reset();
+
+                        if (filePrivate.serverDst().equals(serverName)) {
+                            if (usersConnected.containsKey(filePrivate.loginDst())) {
+                                var userContext = usersConnected.get(filePrivate.loginDst());
+                                userContext.queueCommand(filePrivate.toBuffer());
+                            } else {
+                                System.out.println("file private drop, client unknown");
+                            }
+                        } else {
+
+                            var entry = serversConnected.keySet().stream().filter(name -> name.name().equals(filePrivate.serverDst())).findAny();
+                            if (entry.isEmpty()) {
+                                System.out.println("file private drop, server unknown");
+                            } else {
+                                var serverContext = serversConnected.get(entry.get());
+                                serverContext.queueCommand(filePrivate.toBuffer());
+                            }
+                        }
+                        context.readingState = Context.ReadingState.WAITING_OPCODE;
+                    }
+                }
+            }
+            default -> {
+                System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInServer");
+                context.silentlyClose();
+                return ProcessStatus.ERROR;
+            }
         }
-        return false;
+        return ProcessStatus.DONE;
     }
 
-    private boolean processInClient(Context context) {
+    private ProcessStatus processInClient(Context context) {
         // we attempt MESSAGE_PUBLIC_SEND(4)
         // MESSAGE_PRIVATE(6)
         // FILE_PRIVATE(7)
 
-        if (context.currentCommand == 4) {
-            switch (context.messagePublicSendReader.process(context.bufferIn)) {
-                case ERROR -> context.silentlyClose();
-                case REFILL -> {
-                    return true;
-                }
-                case DONE -> {
-                    var messagePublicSend = context.messagePublicSendReader.get();
-                    context.messagePublicSendReader.reset();
-                    broadcastPublicMessage(messagePublicSend.toBuffer());
-                    transmitsPublicMessageSendingByClient(messagePublicSend.toBuffer());
-                    context.readingState = Context.ReadingState.WAITING_OPCODE;
-                    return false;
-                }
-            }
-        } else if (context.currentCommand == 6) {
-            switch (context.messagePrivateReader.process(context.bufferIn)) {
-                case ERROR -> context.silentlyClose();
-                case REFILL -> {
-                    return true;
-                }
-                case DONE -> {
-                    var messagePrivate = context.messagePrivateReader.get();
-                    context.messagePrivateReader.reset();
-                    if (messagePrivate.serverDst().equals(serverName)) {
-                        if (usersConnected.containsKey(messagePrivate.loginDst())) {
-                            var destContext = usersConnected.get(messagePrivate.loginDst());
-                            destContext.queueCommand(messagePrivate.toBuffer());
-                        }
-                    } else {
-                        if (serversConnected.containsKey(messagePrivate.serverDst())) {
-                            var nextServContext = serversConnected.get(messagePrivate.serverDst());
-                            nextServContext.queueCommand(messagePrivate.toBuffer());
-                        }
+        switch (context.currentCommand) {
+            case 4 -> {
+                switch (context.messagePublicSendReader.process(context.bufferIn)) {
+                    case ERROR -> {
+                        return ProcessStatus.ERROR;
                     }
-                    context.readingState = Context.ReadingState.WAITING_OPCODE;
-                    return false;
+                    case REFILL -> {
+                        return ProcessStatus.REFILL;
+                    }
+                    case DONE -> {
+                        var messagePublicSend = context.messagePublicSendReader.get();
+                        context.messagePublicSendReader.reset();
+
+                        var messagePublicTransmit = new MessagePublicTransmit(messagePublicSend.serverSrc(),
+                                messagePublicSend.loginSrc(),
+                                messagePublicSend.msg());
+                        broadcastPublicMessage(messagePublicTransmit.toBuffer());
+                        transmitsPublicMessageSendingByClient(messagePublicTransmit.toBuffer());
+                        context.readingState = Context.ReadingState.WAITING_OPCODE;
+                    }
                 }
             }
-        } else if (context.currentCommand == 7) {
-            // TODO FILE_PRIVATE(7)
-        } else {
-            System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInClient");
-            context.readingState = Context.ReadingState.WAITING_OPCODE;
-            //processInstructionInfo();
+            case 6 -> {
+                switch (context.messagePrivateReader.process(context.bufferIn)) {
+                    case ERROR -> {
+                        return ProcessStatus.ERROR;
+                    }
+                    case REFILL -> {
+                        return ProcessStatus.REFILL;
+                    }
+                    case DONE -> {
+                        var messagePrivate = context.messagePrivateReader.get();
+                        context.messagePrivateReader.reset();
+                        if (messagePrivate.serverDst().equals(serverName)) {
+                            if (usersConnected.containsKey(messagePrivate.loginDst())) {
+                                var destContext = usersConnected.get(messagePrivate.loginDst());
+                                destContext.queueCommand(messagePrivate.toBuffer());
+                            } else {
+                                System.out.println("message private drop, client unknown");
+                            }
+                        } else {
+                            var entry = serversConnected.keySet().stream().filter(name -> name.name().equals(messagePrivate.serverDst())).findAny();
+                            if (entry.isEmpty()) {
+                                System.out.println("message private drop, server unknown");
+                            } else {
+                                var serverContext = serversConnected.get(entry.get());
+                                serverContext.queueCommand(messagePrivate.toBuffer());
+                            }
+                        }
+                        context.readingState = Context.ReadingState.WAITING_OPCODE;
+                    }
+                }
+            }
+            case 7 -> {
+                switch (context.filePrivateReader.process(context.bufferIn)) {
+                    case ERROR -> {
+                        return ProcessStatus.ERROR;
+                    }
+                    case REFILL -> {
+                        return ProcessStatus.REFILL;
+                    }
+                    case DONE -> {
+                        var filePrivate = context.filePrivateReader.get();
+                        context.filePrivateReader.reset();
+                        if (filePrivate.serverDst().equals(serverName)) {
+                            if (usersConnected.containsKey(filePrivate.loginDst())) {
+                                var destContext = usersConnected.get(filePrivate.loginDst());
+                                destContext.queueCommand(filePrivate.toBuffer());
+                            }
+                        } else {
+                            var entry = serversConnected.keySet().stream().filter(name -> name.name().equals(filePrivate.serverDst())).findAny();
+                            if (entry.isEmpty()) {
+                                System.out.println("message private drop, server unknown");
+                            } else {
+                                var serverContext = serversConnected.get(entry.get());
+                                serverContext.queueCommand(filePrivate.toBuffer());
+                            }
+                        }
+                        context.readingState = Context.ReadingState.WAITING_OPCODE;
+                    }
+                }
+            }
+            default -> {
+                System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInClient");
+                context.silentlyClose();
+                return ProcessStatus.ERROR;
+            }
         }
-        return false;
+        return ProcessStatus.DONE;
     }
 
 
@@ -504,25 +688,41 @@ public class ServerChatFusion {
 
     private void registerToServerFusionManager() {
         if (sfmIsConnected) {
-            uniqueSFMContext.queueCommand(new FusionRegisterServer(serverName).toBuffer());
+            uniqueSFMContext.queueCommand(new FusionRegisterServer(serverName, new SocketAddressToken(serverAddress.getAddress(), port)).toBuffer());
         }
     }
-
-    private void registerToAnotherServer(String serverDestName, InetSocketAddress address) {
-        SocketChannel sc;
+    private void connectToAnotherServer(String serverDestName, InetSocketAddress addressDest){
         try {
-            sc = SocketChannel.open();
+            SocketChannel sc = SocketChannel.open();
             sc.configureBlocking(false);
             var key = sc.register(selector, SelectionKey.OP_CONNECT);
             var serverContext = new Context(key, this, Context.Interlocutor.SERVER);
             key.attach(serverContext);
-            sc.connect(address);
-            serverContext.queueCommand(new /*ServerConnexion*/FusionRegisterServer(serverName).toBuffer());
-            serversConnected.put(serverDestName, serverContext);
+            sc.connect(addressDest);
+            System.out.println("CONEXIONNNNNNNNNNNNNNNNNN");
 
+
+            var serverAddress = new SocketAddressToken(addressDest.getAddress(), addressDest.getPort());
+            serversConnected.put(new EntryRouteTable(serverDestName, serverAddress), serverContext);
+            //System.out.println("Unreachable server....!");
+            //return;
+            //registerToAnotherServer(serverDestName, addressDest, serverContext); // TODO
         } catch (IOException e) {
             logger.severe("OUT CONNEXION WITH ANOTHER SERVER FINISHED BY IOEXCEPTION");
         }
+    }
+
+    /**
+     * Init a new connexion with serverDestName reachable at address
+     */
+    private void registerToAnotherServer(String serverDestName, InetSocketAddress addressDest, Context serverContext) {
+        System.out.println("coucou c'est moi");
+        serverContext.queueCommand(new ServerConnexion(serverName, new SocketAddressToken(serverAddress.getAddress(), port)).toBuffer());
+
+        System.out.println("Buffer chargé : " + new ServerConnexion(serverName, new SocketAddressToken(serverAddress.getAddress(), port)).toBuffer());
+        serversConnected.put(new EntryRouteTable(serverDestName, new SocketAddressToken(addressDest.getAddress(), addressDest.getPort())), serverContext);
+        //serverContext.updateInterestOps();
+        selector.wakeup();
     }
 
     /**
@@ -533,12 +733,11 @@ public class ServerChatFusion {
     private void broadcastPublicMessage(ByteBuffer cmd) {
         Objects.requireNonNull(cmd);
         for (SelectionKey key : selector.keys()) {
-            if (key.channel() == serverSocketChannel) {
-                continue;
-            }
-            Context context = (Context) key.attachment(); // Safe Cast
-            if (context.interlocutor == Context.Interlocutor.CLIENT) {
-                context.queueCommand(cmd.duplicate()); // duplicate allows us not to copy the data
+            if (key.channel() != serverSocketChannel) {
+                Context context = (Context) key.attachment(); // Safe Cast
+                if (context.interlocutor == Context.Interlocutor.CLIENT) {
+                    context.queueCommand(cmd.duplicate()); // duplicate allows us not to copy the data
+                }
             }
         }
     }
@@ -546,12 +745,11 @@ public class ServerChatFusion {
     private void transmitsPublicMessageSendingByClient(ByteBuffer cmd) {
         Objects.requireNonNull(cmd);
         for (SelectionKey key : selector.keys()) {
-            if (key.channel() == serverSocketChannel) {
-                continue;
-            }
-            Context context = (Context) key.attachment(); // Safe Cast
-            if (context.interlocutor == Context.Interlocutor.SERVER) {
-                context.queueCommand(cmd.duplicate()); // duplicate allows us not to copy the data
+            if (key.channel() != serverSocketChannel) {
+                Context context = (Context) key.attachment(); // Safe Cast
+                if (context.interlocutor == Context.Interlocutor.SERVER) {
+                    context.queueCommand(cmd.duplicate()); // duplicate allows us not to copy the data
+                }
             }
         }
     }
@@ -577,6 +775,7 @@ public class ServerChatFusion {
         private final MessagePrivateReader messagePrivateReader = new MessagePrivateReader();
         private final FilePrivateReader filePrivateReader = new FilePrivateReader();
         private final FusionTableRouteResultReader fusionTableRouteResultReader = new FusionTableRouteResultReader();
+        //private final FusionRouteTableSendReader fusionTableRouteResultReader = new FusionRouteTableSendReader();
         private final ServerConnexionReader serverConnexionReader = new ServerConnexionReader();
         // give access to ServerChatFusion.this
         private boolean closed = false;
@@ -584,6 +783,8 @@ public class ServerChatFusion {
         private ReadingState readingState = ReadingState.WAITING_OPCODE;
         private Interlocutor interlocutor;
         private byte currentCommand;
+
+        private final BlockingQueue<ByteBuffer> connexionAsks = new ArrayBlockingQueue<>(100);
 
         private Context(SelectionKey key, ServerChatFusion server, Interlocutor interlocutor) {
             this.key = key;
@@ -600,19 +801,76 @@ public class ServerChatFusion {
          */
         private void processIn() {
             for (; ; ) {
-                if (assureCurrentCommandSet()) return;
-                switch (interlocutor) {
-                    case UNKNOWN -> {
-                        if (server.processInInterlocutorUnknown(this)) return;
+                System.out.println("PING");
+                switch (assureCurrentCommandSet()) {
+                    case ERROR -> {
+                        silentlyClose();
+                        return;
                     }
-                    case CLIENT -> {
-                        if (server.processInClient(this)) return;
+                    case REFILL -> {
+                        return;
                     }
-                    case SERVER -> {
-                        if (server.processInServer(this)) return;
-                    }
-                    case SFM -> {
-                        if (server.processInSFM(this)) return;
+                    case DONE -> {
+                        System.out.println("INTERLOCUTOR == " + interlocutor);
+                        switch (interlocutor) {
+                            case UNKNOWN -> {
+                                switch (server.processInInterlocutorUnknown(this)) {
+                                    case REFILL -> {
+                                        return;
+                                    }
+                                    case ERROR -> {
+                                        silentlyClose();
+                                        return;
+                                    }
+                                    case DONE -> {
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            case CLIENT -> {
+                                switch (server.processInClient(this)) {
+                                    case REFILL -> {
+                                        return;
+                                    }
+                                    case ERROR -> {
+                                        silentlyClose();
+                                        return;
+                                    }
+                                    case DONE -> {
+                                        continue;
+                                    }
+                                }
+                            }
+                            case SERVER -> {
+                                switch (server.processInServer(this)) {
+                                    case REFILL -> {
+                                        return;
+                                    }
+                                    case ERROR -> {
+                                        silentlyClose();
+                                        return;
+                                    }
+                                    case DONE -> {
+                                        continue;
+                                    }
+                                }
+                            }
+                            case SFM -> {
+                                switch (server.processInSFM(this)) {
+                                    case REFILL -> {
+                                        return;
+                                    }
+                                    case ERROR -> {
+                                        silentlyClose();
+                                        return;
+                                    }
+                                    case DONE -> {
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -627,18 +885,19 @@ public class ServerChatFusion {
             queueCommand.addLast(cmd);
             processOut();
             updateInterestOps();
-            System.out.println("add queue cmd...");
         }
 
         /**
          * Assure currentCommand is set
          */
-        private boolean assureCurrentCommandSet() {
+        private ProcessStatus assureCurrentCommandSet() {
             if (readingState == ReadingState.WAITING_OPCODE) {
                 switch (opcodeReader.process(bufferIn)) {
-                    case ERROR -> silentlyClose();
+                    case ERROR -> {
+                        return ProcessStatus.ERROR;
+                    }
                     case REFILL -> {
-                        return true;
+                        return ProcessStatus.REFILL;
                     }
                     case DONE -> {
                         currentCommand = opcodeReader.get()[0];
@@ -647,7 +906,7 @@ public class ServerChatFusion {
                     }
                 }
             }
-            return false;
+            return ProcessStatus.DONE;
         }
 
         /**
@@ -701,12 +960,16 @@ public class ServerChatFusion {
                 }
                 case UNKNOWN -> {
                 }
-                case SFM -> server.sfmIsConnected = false;
+                case SFM -> {
+                    server.sfmIsConnected = false;
+                    System.out.println("Disconnected with ServerFusionManager");
+                }
                 case SERVER -> {
-                    server.serversConnected.remove(server.retrieveServerNameFromContext(this));
+                    server.serversConnected.remove(server.retrieveServerEntryFromContext(this));
                     System.out.println("remove server from map");
                 }
             }
+
             try {
                 sc.close();
             } catch (IOException e) {
@@ -740,7 +1003,7 @@ public class ServerChatFusion {
          */
         private void doWrite() throws IOException {
             bufferOut.flip();
-            sc.write(bufferOut);
+            System.out.println("WROTE "+ sc.write(bufferOut) + "bytes");
             bufferOut.compact();
             processOut();
             updateInterestOps();
@@ -749,7 +1012,13 @@ public class ServerChatFusion {
         public void doConnect() throws IOException {
             if (!sc.finishConnect())
                 return; // the selector gave a bad hint
+            System.out.println("NEW SORTANTE CONNEXION");
             key.interestOps(SelectionKey.OP_READ); // needed OP_WRITE to send FUSION_REGISTER_SERVER(8) or SERVER_CONNEXION(15) ?
+
+            if(interlocutor == Interlocutor.SERVER){
+                System.out.println("Sending message 15 with info :  " + server.serverName + server.serverAddress.getAddress() + ":" + server.port);
+                queueCommand(new ServerConnexion(server.serverName, new SocketAddressToken(server.serverAddress.getAddress(), server.port)).toBuffer());
+            }
         }
 
         enum ReadingState {

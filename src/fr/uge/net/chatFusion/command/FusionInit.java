@@ -14,7 +14,7 @@ public record FusionInit(SocketAddressToken address) {
     }
 
     public ByteBuffer toBuffer(){
-        var bbAddress = address.toBuffer();
+        var bbAddress = address.toBuffer().flip();
 
         ByteBuffer buffer = ByteBuffer.allocate(bbAddress.remaining() + Byte.BYTES);
         buffer.put(OPCODE);

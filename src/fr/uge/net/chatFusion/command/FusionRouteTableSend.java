@@ -24,16 +24,15 @@ public record FusionRouteTableSend(int nbMembers, Map<String, SocketAddressToken
         }
     }
 
-    // [12 (OPCODE) nb_members (INT) name_0 (STRING<=30) address1 (SOCKETADDRESS) name_1 …]
+    // [12 (OPCODE) nb_members (INT) name_0 (STRING<=30) address0 (SOCKETADDRESS) name_1 …]
     public ByteBuffer toBuffer() {
         int bufferSize = 1024;
         ByteBuffer buffer = ByteBuffer.allocate(bufferSize);
         buffer.put(OPCODE).putInt(nbMembers);
         for (var servName : routes.keySet()) {
             var bbServName = UTF8.encode(servName);
-            var bbSocketAddr = routes.get(servName).toBuffer();
-
-            if(Integer.BYTES + bbServName.remaining() + bbSocketAddr.remaining() > buffer.remaining()){
+            var bbSocketAddr = routes.get(servName).toBuffer().flip();
+            if (Integer.BYTES + bbServName.remaining() + bbSocketAddr.remaining() > buffer.remaining()) {
                 // need to grow buffer
                 bufferSize *= 2;
                 var tmpBuffer = ByteBuffer.allocate(bufferSize);

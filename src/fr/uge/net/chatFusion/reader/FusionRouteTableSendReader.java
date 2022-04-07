@@ -21,8 +21,10 @@ public class FusionRouteTableSendReader implements Reader<FusionRouteTableSend> 
     @Override
     public ProcessStatus process(ByteBuffer bb) {
         if (state == State.DONE || state == State.ERROR) {
+            System.out.println("STATE ===== " + state);
             throw new IllegalStateException();
         }
+        //System.out.println("BB = " + bb);
         if (state == State.WAITING_NB_MEMBERS) {
             switch (nbMembersReader.process(bb)) {
                 case REFILL -> {
@@ -34,53 +36,56 @@ public class FusionRouteTableSendReader implements Reader<FusionRouteTableSend> 
                 }
                 case DONE -> {
                     nbMembers = nbMembersReader.get();
+                    nbMembersReader.reset();
+                    //System.out.println("### FTRR nbMembers = " + nbMembers);
                     state = State.WAITING_SERVER_NAME;
                 }
             }
         }
 
-        if (state == State.WAITING_SERVER_NAME) {
-            switch (serverNameReader.process(bb)) {
-                case REFILL -> {
-                    return ProcessStatus.REFILL;
-                }
-                case ERROR -> {
-                    state = State.ERROR;
-                    return ProcessStatus.ERROR;
-                }
-                case DONE -> {
-                    currentServName = serverNameReader.get();
-                    serverNameReader.reset();
-                    state = State.WAITING_SOCKET_ADDRESS;
+        while(nbMembersRegistered != nbMembers){
+            if (state == State.WAITING_SERVER_NAME) {
+                switch (serverNameReader.process(bb)) {
+                    case REFILL -> {
+                        return ProcessStatus.REFILL;
+                    }
+                    case ERROR -> {
+                        state = State.ERROR;
+                        return ProcessStatus.ERROR;
+                    }
+                    case DONE -> {
+                        currentServName = serverNameReader.get();
+                        serverNameReader.reset();
+                        state = State.WAITING_SOCKET_ADDRESS;
+                    }
                 }
             }
-        }
 
-        if (state == State.WAITING_SOCKET_ADDRESS) {
-            switch (socketAddressTokenReader.process(bb)) {
-                case REFILL -> {
-                    return ProcessStatus.REFILL;
-                }
-                case ERROR -> {
-                    state = State.ERROR;
-                    return ProcessStatus.ERROR;
-                }
-                case DONE -> {
-                    var currentSocketAddress = socketAddressTokenReader.get();
-                    socketAddressTokenReader.reset();
-
-                    // registered to the map
-                    routes.put(currentServName, currentSocketAddress);
-                    nbMembersRegistered++;
-                    if(nbMembersRegistered == nbMembers){
-                        state = State.DONE;
-                    }else{
-                        state = State.WAITING_SERVER_NAME;
+            if (state == State.WAITING_SOCKET_ADDRESS) {
+                switch (socketAddressTokenReader.process(bb)) {
+                    case REFILL -> {
                         return ProcessStatus.REFILL;
+                    }
+                    case ERROR -> {
+                        state = State.ERROR;
+                        return ProcessStatus.ERROR;
+                    }
+                    case DONE -> {
+                        var currentSocketAddress = socketAddressTokenReader.get();
+                        socketAddressTokenReader.reset();
+
+                        // registered to the map
+                        routes.put(currentServName, currentSocketAddress);
+                        nbMembersRegistered++;
+                        state = State.WAITING_SERVER_NAME;
                     }
                 }
             }
         }
+
+        //System.out.println("nbMembersRegistered : " + nbMembersRegistered + " == nbMembers : " + nbMembers);
+        state = State.DONE;
+
         return ProcessStatus.DONE;
     }
 
