@@ -38,14 +38,13 @@ public class FileSendInfo {
     }
 
     public byte[] readChunkIntoCommand() throws IOException {
-        var offset = progress * MAX_IN_COMMAND;
         var  limit = 0;
         var nbByteRead = file.read(charBuff,progress * MAX_IN_COMMAND, MAX_IN_COMMAND);
         while(nbByteRead < MAX_IN_COMMAND && nbByteRead != -1){
             limit += nbByteRead;
-            nbByteRead = file.read(charBuff, offset+limit, MAX_IN_COMMAND);
+            nbByteRead = file.read(charBuff, limit, (MAX_IN_COMMAND- 1) - limit);
         }
         progress+=1;
-        return StandardCharsets.US_ASCII.encode(CharBuffer.wrap(charBuff).limit(offset)).array();
+        return StandardCharsets.US_ASCII.encode(CharBuffer.wrap(charBuff).limit(limit)).array();
     }
 }

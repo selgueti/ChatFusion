@@ -50,6 +50,7 @@ public class ClientChatFusion {
     }
 
     public ClientChatFusion(String login, InetSocketAddress serverAddress, String directory) throws IOException {
+        this.fileSender = new FileSender(this);
         this.serverAddress = serverAddress;
         this.login = login;
         this.sc = SocketChannel.open();
@@ -111,6 +112,9 @@ public class ClientChatFusion {
         }
         else {
                 var tokens = instruction.substring(1).split(":", 2);
+                if (tokens.length != 2){
+                    System.out.println("saisie invalide!");
+                }
                 var loginDst = tokens[0];
                 var serverDst = tokens[1].split(" ", 2)[0];
 
@@ -119,9 +123,18 @@ public class ClientChatFusion {
                 return new MessagePrivate(serverName, login, serverDst, loginDst, msg).toBuffer();
             }
             if(instruction.startsWith("/")){
-                // step 1: tell fileSender to send this file.
+                System.out.println("detected file instruction");
+                var file = Path.of(tokens[1].split(" ", 2)[1]);
+                try {
+                    var fp = new FileSendInfo(file.toString(), loginDst, serverDst, file.getFileName().toString());
+                    fileSender.sendNewFile(fp);
+                }catch(IOException ioe){
+                    System.out.println("invalid file");
+                }
+                return ByteBuffer.allocate(0);
             }
         }
+        return ByteBuffer.allocate(0);
     }
 
     /**
@@ -515,7 +528,7 @@ public class ClientChatFusion {
 
     public class FileSender {
         private static final Deque<FileSendInfo> fileQueue = new ArrayDeque<>(10);
-        private static final ClientChatFusion client;
+        private static ClientChatFusion client;
         private final static int TIMEOUT_STD = 100;
         private final static int MAX_SLEEP_TIME = 3000;
         private final static int COMMAND_QUEUE_FULL_TIMEOUT = 200;
@@ -537,9 +550,8 @@ public class ClientChatFusion {
                         }
                         if (!fileQueue.isEmpty()) {
                             var fileInfo = fileQueue.peek();
-                            byte[] data = fileInfo.readChunkIntoCommand();
+                            client.uniqueContext.queueCommand(fileInfo.buildFieChunk(client));
                         }
-                        client.uniqueContext.queueCommand();
                     }
                 }catch (IOException ioe){
                     throw new UncheckedIOException(ioe);
