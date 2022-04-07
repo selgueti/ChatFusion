@@ -503,8 +503,8 @@ public class ServerChatFusion {
                         return ProcessStatus.REFILL;
                     }
                     case DONE -> {
-                        var messagePublicSend = context.messagePublicSendReader.get();
-                        context.messagePublicSendReader.reset();
+                        var messagePublicSend = context.messagePublicTransmitReader.get();
+                        context.messagePublicTransmitReader.reset();
                         broadcastPublicMessage(messagePublicSend.toBuffer());
                         context.readingState = Context.ReadingState.WAITING_OPCODE;
                     }
@@ -606,8 +606,8 @@ public class ServerChatFusion {
                         var messagePublicTransmit = new MessagePublicTransmit(messagePublicSend.serverSrc(),
                                 messagePublicSend.loginSrc(),
                                 messagePublicSend.msg());
-                        broadcastPublicMessage(messagePublicTransmit.toBuffer());
-                        transmitsPublicMessageSendingByClient(messagePublicTransmit.toBuffer());
+                        broadcastPublicMessage(messagePublicTransmit.toBuffer().duplicate());
+                        transmitsPublicMessageSendingByClient(messagePublicTransmit.toBuffer().duplicate());
                         context.readingState = Context.ReadingState.WAITING_OPCODE;
                     }
                 }
