@@ -20,7 +20,7 @@ public record ServerConnexion(String name, SocketAddressToken socketAddressToken
 
     public ByteBuffer toBuffer(){
         var bbName = UTF8.encode(name);
-        var bbSocketAddress = socketAddressToken.toBuffer();
+        var bbSocketAddress = socketAddressToken.toBuffer().flip();
         var buffer = ByteBuffer.allocate(Integer.BYTES + bbName.remaining() + bbSocketAddress.remaining() + Byte.BYTES);
 
         buffer.put(OPCODE).putInt(bbName.remaining()).put(bbName).put(bbSocketAddress);

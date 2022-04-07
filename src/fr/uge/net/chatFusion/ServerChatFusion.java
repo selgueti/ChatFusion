@@ -50,6 +50,7 @@ public class ServerChatFusion {
         this.console = new Thread(this::consoleRun);
         this.sfmSocketChannel = SocketChannel.open();
         routes.put(serverName, new SocketAddressToken(serverAddress.getAddress(), port));
+        //routes.put("server3", new SocketAddressToken(new InetSocketAddress("localhost", port).getAddress(), 9999));
     }
 
     public static void main(String[] args) throws NumberFormatException, IOException {
@@ -258,7 +259,27 @@ public class ServerChatFusion {
         serverSocketChannel.configureBlocking(false);
         serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
 
+        connexionToSFM();
 
+        while (!Thread.interrupted()) {
+            //Helpers.printKeys(selector); // for debug
+            //System.out.println("Starting select");
+            try {
+                selector.select(this::treatKey);
+                processInstructions();
+                if (firstLoop && sfmIsConnected) {
+                    registerToServerFusionManager();
+                    firstLoop = false;
+                    sfmIsConnected = true;
+                }
+            } catch (UncheckedIOException tunneled) {
+                throw tunneled.getCause();
+            }
+            //System.out.println("Select finished");
+        }
+    }
+
+    private void connexionToSFM() {
         try {
             sfmSocketChannel.configureBlocking(false);
             var key = sfmSocketChannel.register(selector, SelectionKey.OP_CONNECT);
@@ -270,29 +291,10 @@ public class ServerChatFusion {
             System.out.println("ServerFusionManager is unreachable");
             sfmIsConnected = false;
         }
-
-
-        while (!Thread.interrupted()) {
-            //Helpers.printKeys(selector); // for debug
-            //System.out.println("Starting select");
-            try {
-                selector.select(this::treatKey);
-                processInstructions();
-                if (firstLoop) {
-                    registerToServerFusionManager();
-                    firstLoop = false;
-                    sfmIsConnected = true;
-
-                }
-            } catch (UncheckedIOException tunneled) {
-                throw tunneled.getCause();
-            }
-            //System.out.println("Select finished");
-        }
     }
 
     private void treatKey(SelectionKey key) {
-        //Helpers.printSelectedKey(key); // for debug
+        Helpers.printSelectedKey(key); // for debug
         try {
             if (key.isValid() && key.isAcceptable()) {
                 doAccept(key);
@@ -325,9 +327,11 @@ public class ServerChatFusion {
             logger.info("Selector lied, no accept");
             return;
         }
+        System.out.println("DO ACCEPTE - 1");
         sc.configureBlocking(false);
         var selectionKey = sc.register(selector, SelectionKey.OP_READ);
         selectionKey.attach(new Context(selectionKey, this, Context.Interlocutor.UNKNOWN));
+        System.out.println("DO ACCEPTE - 2");
     }
 
     private void silentlyClose(SelectionKey key) {
@@ -375,6 +379,7 @@ public class ServerChatFusion {
                 }
             }
             case 15 -> {
+                System.out.println("received opcode 15");
                 switch (context.serverConnexionReader.process(context.bufferIn)) {
                     case ERROR -> {
                         return ProcessStatus.ERROR;
@@ -383,12 +388,14 @@ public class ServerChatFusion {
                         return ProcessStatus.REFILL;
                     }
                     case DONE -> {
+                        System.out.println("done reading opcode 15");
                         var serverConnexion = context.serverConnexionReader.get();
                         context.serverConnexionReader.reset();
                         // TODO Check if the current interlocutor is really a cluster's server
                         context.interlocutor = Context.Interlocutor.SERVER;
                         serversConnected.put(new EntryRouteTable(serverConnexion.name(), serverConnexion.socketAddressToken()), context);
                         context.readingState = Context.ReadingState.WAITING_OPCODE;
+                        System.out.println("NEW ENTRANT CONNEXION from " + serverConnexion.name() + serverConnexion.socketAddressToken().address() + ":" + serverConnexion.socketAddressToken().port());
                     }
                 }
             }
@@ -405,14 +412,14 @@ public class ServerChatFusion {
         // FUSION_ROUTE_TABLE_ASK(11)
         // FUSION_INVALID_NAME(13)
         // FUSION_TABLE_ROUTE_RESULT(14)
-
+        //System.out.println("currentCommand = " + context.currentCommand);
         switch (context.currentCommand) {
             case 10 -> {
                 System.out.println("The server you are trying to merge with does not exist");
                 context.readingState = Context.ReadingState.WAITING_OPCODE;
             }
             case 11 -> {
-                System.out.println("Sending of routes table...");
+                System.out.println("Sending of routes table... : " + new FusionRouteTableSend(routes.size(), routes).toBuffer());
                 context.queueCommand(new FusionRouteTableSend(routes.size(), routes).toBuffer());
                 context.readingState = Context.ReadingState.WAITING_OPCODE;
             }
@@ -421,24 +428,34 @@ public class ServerChatFusion {
                 context.readingState = Context.ReadingState.WAITING_OPCODE;
             }
             case 14 -> {
+                System.out.println("NEW TABLE ROUTES RECEIVE");
+                //System.out.println("BUFFERIN  = " + context.bufferIn);
+
                 switch (context.fusionTableRouteResultReader.process(context.bufferIn)) {
                     case ERROR -> {
+                        System.out.println("processInSFM ERROR");
                         return ProcessStatus.ERROR;
                     }
                     case REFILL -> {
+                        System.out.println("processInSFM REFILL = " + context.bufferIn);
                         return ProcessStatus.REFILL;
                     }
                     case DONE -> {
+                        System.out.println("processInSFM DONE");
                         var fusionTableRouteResult = context.fusionTableRouteResultReader.get();
                         context.fusionTableRouteResultReader.reset();
                         System.out.println("New Routes Table receive :");
                         fusionTableRouteResult.routes().entrySet().forEach(entry -> System.out.println(entry.getKey() + entry.getValue().address() + " : " + entry.getValue().port()));
                         routes = fusionTableRouteResult.routes();
                         for (var routeName : routes.keySet()) {
-                            if (serverName.compareTo(routeName) < 0 && !serversConnected.containsKey(new EntryRouteTable(routeName, routes.get(routeName)))) {
+                            var entry  = new EntryRouteTable(routeName, routes.get(routeName));
+                            if (serverName.compareTo(routeName) < 0 && !serversConnected.containsKey(entry)) {
                                 var address = routes.get(routeName).address().getHostAddress();
                                 var port = routes.get(routeName).port();
-                                registerToAnotherServer(routeName, new InetSocketAddress(address, port));
+                                connectToAnotherServer(routeName, new InetSocketAddress(address, port));
+                                System.out.println("Sending new connexion ...");
+
+                                //registerToAnotherServer(routeName, new InetSocketAddress(address, port), context); // TODO
                             }
                         }
                         context.readingState = Context.ReadingState.WAITING_OPCODE;
@@ -657,25 +674,38 @@ public class ServerChatFusion {
             uniqueSFMContext.queueCommand(new FusionRegisterServer(serverName, new SocketAddressToken(serverAddress.getAddress(), port)).toBuffer());
         }
     }
-
-    /**
-     * Init a new connexion with serverDestName reachable at address
-     */
-    private void registerToAnotherServer(String serverDestName, InetSocketAddress addressDest) {
-        SocketChannel sc;
+    private void connectToAnotherServer(String serverDestName, InetSocketAddress addressDest){
         try {
-            sc = SocketChannel.open();
+            SocketChannel sc = SocketChannel.open();
             sc.configureBlocking(false);
             var key = sc.register(selector, SelectionKey.OP_CONNECT);
             var serverContext = new Context(key, this, Context.Interlocutor.SERVER);
             key.attach(serverContext);
             sc.connect(addressDest);
-            serverContext.queueCommand(new ServerConnexion(serverName, new SocketAddressToken(serverAddress.getAddress(), port)).toBuffer());
-            serversConnected.put(new EntryRouteTable(serverDestName, new SocketAddressToken(addressDest.getAddress(), addressDest.getPort())), serverContext);
+            System.out.println("CONEXIONNNNNNNNNNNNNNNNNN");
 
+
+            var serverAddress = new SocketAddressToken(addressDest.getAddress(), addressDest.getPort());
+            serversConnected.put(new EntryRouteTable(serverDestName, serverAddress), serverContext);
+            //System.out.println("Unreachable server....!");
+            //return;
+            registerToAnotherServer(serverDestName, addressDest, serverContext); // TODO
         } catch (IOException e) {
             logger.severe("OUT CONNEXION WITH ANOTHER SERVER FINISHED BY IOEXCEPTION");
         }
+    }
+
+    /**
+     * Init a new connexion with serverDestName reachable at address
+     */
+    private void registerToAnotherServer(String serverDestName, InetSocketAddress addressDest, Context serverContext) {
+        System.out.println("coucou c'est moi");
+        serverContext.queueCommand(new ServerConnexion(serverName, new SocketAddressToken(serverAddress.getAddress(), port)).toBuffer());
+
+        System.out.println("Buffer chargé : " + new ServerConnexion(serverName, new SocketAddressToken(serverAddress.getAddress(), port)).toBuffer());
+        serversConnected.put(new EntryRouteTable(serverDestName, new SocketAddressToken(addressDest.getAddress(), addressDest.getPort())), serverContext);
+        //serverContext.updateInterestOps();
+        selector.wakeup();
     }
 
     /**
@@ -728,6 +758,7 @@ public class ServerChatFusion {
         private final MessagePrivateReader messagePrivateReader = new MessagePrivateReader();
         private final FilePrivateReader filePrivateReader = new FilePrivateReader();
         private final FusionTableRouteResultReader fusionTableRouteResultReader = new FusionTableRouteResultReader();
+        //private final FusionRouteTableSendReader fusionTableRouteResultReader = new FusionRouteTableSendReader();
         private final ServerConnexionReader serverConnexionReader = new ServerConnexionReader();
         // give access to ServerChatFusion.this
         private boolean closed = false;
@@ -751,6 +782,7 @@ public class ServerChatFusion {
          */
         private void processIn() {
             for (; ; ) {
+                System.out.println("PING");
                 switch (assureCurrentCommandSet()) {
                     case ERROR -> {
                         silentlyClose();
@@ -760,6 +792,7 @@ public class ServerChatFusion {
                         return;
                     }
                     case DONE -> {
+                        System.out.println("INTERLOCUTOR == " + interlocutor);
                         switch (interlocutor) {
                             case UNKNOWN -> {
                                 switch (server.processInInterlocutorUnknown(this)) {
@@ -951,7 +984,7 @@ public class ServerChatFusion {
          */
         private void doWrite() throws IOException {
             bufferOut.flip();
-            sc.write(bufferOut);
+            System.out.println("WROTE "+ sc.write(bufferOut) + "bytes");
             bufferOut.compact();
             processOut();
             updateInterestOps();
@@ -960,6 +993,7 @@ public class ServerChatFusion {
         public void doConnect() throws IOException {
             if (!sc.finishConnect())
                 return; // the selector gave a bad hint
+            System.out.println("NEW SORTANTE CONNEXION");
             key.interestOps(SelectionKey.OP_READ); // needed OP_WRITE to send FUSION_REGISTER_SERVER(8) or SERVER_CONNEXION(15) ?
         }
 

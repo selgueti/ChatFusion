@@ -24,7 +24,7 @@ public record FusionRouteTableSend(int nbMembers, Map<String, SocketAddressToken
         }
     }
 
-    // [12 (OPCODE) nb_members (INT) name_0 (STRING<=30) address1 (SOCKETADDRESS) name_1 …]
+    // [12 (OPCODE) nb_members (INT) name_0 (STRING<=30) address0 (SOCKETADDRESS) name_1 …]
     public ByteBuffer toBuffer() {
         int bufferSize = 1024;
         ByteBuffer buffer = ByteBuffer.allocate(bufferSize);
