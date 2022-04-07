@@ -269,7 +269,7 @@ public class ClientChatFusion {
                     case REFILL -> {return ProcessStatus.REFILL;}
                     case DONE -> {
                         var messagePublic = context.messagePublicTransmitReader.get();
-                        context.messagePrivateReader.reset();
+                        context.messagePublicTransmitReader.reset();
                         System.out.println(messagePublic.login() + "@" + messagePublic.server() + " PUBLIC: " + messagePublic.msg());
                     }
                 }
