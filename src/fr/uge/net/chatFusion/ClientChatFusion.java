@@ -542,19 +542,26 @@ public class ClientChatFusion {
 
         private static void senderAction() {
             int sleepTime = TIMEOUT_STD;
-            while (!Thread.interrupted()){
+            for(;;){
                 try {
                     synchronized (fileQueue) {
                         if (fileQueue.isEmpty() && sleepTime < MAX_SLEEP_TIME) {
-                            sleepTime += TIMEOUT_STD;
+                            sleepTime += sleepTime * 2;
                         }
                         if (!fileQueue.isEmpty()) {
+                            sleepTime = TIMEOUT_STD;
                             var fileInfo = fileQueue.peek();
                             client.uniqueContext.queueCommand(fileInfo.buildFieChunk(client));
+                            client.selector.wakeup();
                         }
                     }
                 }catch (IOException ioe){
                     throw new UncheckedIOException(ioe);
+                }
+                try {
+                    Thread.sleep(sleepTime);
+                }catch (InterruptedException ie){
+                    return;
                 }
             }
         }
