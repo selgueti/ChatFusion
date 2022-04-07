@@ -20,11 +20,10 @@ public class MessagePublicTransmitReader implements Reader<MessagePublicTransmit
     }
     @Override
     public ProcessStatus process(ByteBuffer bb) {
-        switch(state){
-            case DONE, ERROR ->{
+            if(state == State.DONE || state == State.ERROR){
                 throw new IllegalStateException();
             }
-            case WAITING_SERVER -> {
+            if(state == State.WAITING_SERVER){
                 switch(stringReader.process(bb)){
                     case REFILL -> {
                         return ProcessStatus.REFILL;
@@ -40,7 +39,7 @@ public class MessagePublicTransmitReader implements Reader<MessagePublicTransmit
                     }
                 }
             }
-            case WAITING_LOGIN -> {
+            if(state == State.WAITING_LOGIN){
                 switch(stringReader.process(bb)){
                     case REFILL -> {
                         return ProcessStatus.REFILL;
@@ -56,7 +55,7 @@ public class MessagePublicTransmitReader implements Reader<MessagePublicTransmit
                     }
                 }
             }
-            case WAITING_MSG -> {
+            if(state == State.WAITING_MSG){
                 switch (stringReader.process(bb)){
                     case REFILL -> {
                         return ProcessStatus.REFILL;
@@ -73,7 +72,6 @@ public class MessagePublicTransmitReader implements Reader<MessagePublicTransmit
                     }
                 }
             }
-        }
         throw new AssertionError();
     }
 
