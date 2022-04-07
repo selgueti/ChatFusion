@@ -11,60 +11,57 @@ public class ServerConnexionReader implements Reader<ServerConnexion> {
     private String name;
     private SocketAddressToken socketAddressToken;
     private State state = State.WAITING_NAME;
-    private enum State{
-        DONE,
-        WAITING_NAME,
-        WAITING_SOCKET_ADDRESS,
-        ERROR
-    }
 
     @Override
     public ProcessStatus process(ByteBuffer bb) {
-        switch(state){
-            case ERROR, DONE -> {
-                throw new IllegalStateException();
-            }
-            case WAITING_NAME -> {
-                switch (stringReader.process(bb)){
-                    case REFILL -> {
-                        return ProcessStatus.REFILL;
-                    }
-                    case ERROR -> {
-                        state = State.ERROR;
-                        return ProcessStatus.ERROR;
-                    }
-                    case DONE -> {
-                        name = stringReader.get();
-                        stringReader.reset();
-                        state = State.WAITING_SOCKET_ADDRESS;
-                        //return ProcessStatus.REFILL;
-                    }
+        if (state == State.DONE || state == State.ERROR) {
+            throw new IllegalStateException();
+        }
+        //System.out.println("READER  : state == " + state);
+        if (state == State.WAITING_NAME) {
+            switch (stringReader.process(bb)) {
+                case REFILL -> {
+                    //System.out.println("string reader : state = REFILL ");
+                    return ProcessStatus.REFILL;
                 }
-            }
-
-            case WAITING_SOCKET_ADDRESS -> {
-                switch (socketAddressTokenReader.process(bb)){
-                    case REFILL -> {
-                        return ProcessStatus.REFILL;
-                    }
-                    case ERROR -> {
-                        return ProcessStatus.ERROR;
-                    }
-                    case DONE -> {
-                        socketAddressToken = socketAddressTokenReader.get();
-                        socketAddressTokenReader.reset();
-                        return ProcessStatus.DONE;
-                    }
+                case ERROR -> {
+                    //System.out.println("string reader : state = ERROR ");
+                    state = State.ERROR;
+                    return ProcessStatus.ERROR;
                 }
-
+                case DONE -> {
+                    //System.out.println("string reader : state = DONE ");
+                    name = stringReader.get();
+                    stringReader.reset();
+                    state = State.WAITING_SOCKET_ADDRESS;
+                }
             }
         }
-        return ProcessStatus.ERROR;
+        if (state == State.WAITING_SOCKET_ADDRESS) {
+            switch (socketAddressTokenReader.process(bb)) {
+                case REFILL -> {
+                    //System.out.println("socketAddressTokenReader : state = REFILL");
+                    return ProcessStatus.REFILL;
+                }
+                case ERROR -> {
+                    //System.out.println("socketAddressTokenReader : state = ERROR");
+                    state = State.ERROR;
+                    return ProcessStatus.ERROR;
+                }
+                case DONE -> {
+                    //System.out.println("socketAddressTokenReader : state = DONE");
+                    socketAddressToken = socketAddressTokenReader.get();
+                    state = State.DONE;
+                }
+            }
+        }
+        return ProcessStatus.DONE;
     }
 
     @Override
     public ServerConnexion get() {
-        if(state != State.DONE){
+        System.out.println("State (get) == " + state);
+        if (state != State.DONE) {
             throw new IllegalStateException();
         }
         return new ServerConnexion(name, socketAddressToken);
@@ -77,5 +74,12 @@ public class ServerConnexionReader implements Reader<ServerConnexion> {
         socketAddressTokenReader.reset();
         name = null;
         socketAddressToken = null;
+    }
+
+    private enum State {
+        DONE,
+        WAITING_NAME,
+        WAITING_SOCKET_ADDRESS,
+        ERROR
     }
 }

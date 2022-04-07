@@ -13,6 +13,8 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
 import java.util.*;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -202,11 +204,7 @@ public class ServerChatFusion {
         System.out.println("Unregistered connected : " + nbInterlocutorActuallyConnected(Context.Interlocutor.UNKNOWN));
         System.out.println("Clients connected      : " + nbInterlocutorActuallyConnected(Context.Interlocutor.CLIENT));
         System.out.println("Servers connected      : " + nbInterlocutorActuallyConnected(Context.Interlocutor.SERVER));
-        if (nbInterlocutorActuallyConnected(Context.Interlocutor.SFM) == 1) {
-            System.out.println("SFM connected          : yes");
-        } else {
-            System.out.println("SFM connected          : no");
-        }
+        System.out.println("SFM connected          : " + (nbInterlocutorActuallyConnected(Context.Interlocutor.SFM) == 1 ? "yes" : "no"));
     }
 
     private void processInstructionInfoComplete() {
@@ -225,6 +223,7 @@ public class ServerChatFusion {
         final StringJoiner sj2 = new StringJoiner(", ", "{", "}");
         serversConnected.forEach((key, value) -> sj2.add(key.name() + key.socketAddressToken().address()));
         System.out.println(sj2);
+        System.out.println("SFM connected          : " + (sfmIsConnected ? "yes" : "no"));
         System.out.println("============================================");
     }
 
@@ -294,7 +293,7 @@ public class ServerChatFusion {
     }
 
     private void treatKey(SelectionKey key) {
-        Helpers.printSelectedKey(key); // for debug
+        //Helpers.printSelectedKey(key); // for debug
         try {
             if (key.isValid() && key.isAcceptable()) {
                 doAccept(key);
@@ -304,11 +303,24 @@ public class ServerChatFusion {
             throw new UncheckedIOException(ioe);
         }
 
-        try {
-            if (key.isValid() && key.isConnectable()) {
-                // SFM or Server new connexion
+        if (key.isValid() && key.isConnectable()) {
+            // SFM or Server new connexion
+            try {
                 ((Context) key.attachment()).doConnect();
+            } catch (IOException e) {
+                Context context = (Context) key.attachment();
+                if(context.interlocutor == Context.Interlocutor.SFM){
+                    System.out.println("SFM is unreachable");
+                    sfmIsConnected = false;
+                }
+                else{
+                    logger.log(Level.INFO, "Connection closed with interlocutor due to IOException", e);
+                }
             }
+        }
+
+
+        try {
             if (key.isValid() && key.isWritable()) {
                 ((Context) key.attachment()).doWrite();
             }
@@ -327,11 +339,13 @@ public class ServerChatFusion {
             logger.info("Selector lied, no accept");
             return;
         }
-        System.out.println("DO ACCEPTE - 1");
+        //System.out.println("DO ACCEPTE - 1");
         sc.configureBlocking(false);
         var selectionKey = sc.register(selector, SelectionKey.OP_READ);
         selectionKey.attach(new Context(selectionKey, this, Context.Interlocutor.UNKNOWN));
-        System.out.println("DO ACCEPTE - 2");
+        System.out.println("NEW CONNEXION FROM " + sc.getRemoteAddress());
+        processInstructionInfoComplete();
+        //System.out.println("DO ACCEPTE - 2");
     }
 
     private void silentlyClose(SelectionKey key) {
@@ -382,20 +396,23 @@ public class ServerChatFusion {
                 System.out.println("received opcode 15");
                 switch (context.serverConnexionReader.process(context.bufferIn)) {
                     case ERROR -> {
+                        System.out.println("error reading opcode 15");
                         return ProcessStatus.ERROR;
                     }
                     case REFILL -> {
+                        System.out.println("refill reading opcode 15");
                         return ProcessStatus.REFILL;
                     }
                     case DONE -> {
                         System.out.println("done reading opcode 15");
                         var serverConnexion = context.serverConnexionReader.get();
+                        System.out.println("new connexion from " + serverConnexion.name() + " at " + serverConnexion.socketAddressToken());
                         context.serverConnexionReader.reset();
                         // TODO Check if the current interlocutor is really a cluster's server
                         context.interlocutor = Context.Interlocutor.SERVER;
                         serversConnected.put(new EntryRouteTable(serverConnexion.name(), serverConnexion.socketAddressToken()), context);
                         context.readingState = Context.ReadingState.WAITING_OPCODE;
-                        System.out.println("NEW ENTRANT CONNEXION from " + serverConnexion.name() + serverConnexion.socketAddressToken().address() + ":" + serverConnexion.socketAddressToken().port());
+                        System.out.println(serverConnexion.name() + serverConnexion.socketAddressToken().address() + ":" + serverConnexion.socketAddressToken().port() + " is now registered");
                     }
                 }
             }
@@ -689,7 +706,7 @@ public class ServerChatFusion {
             serversConnected.put(new EntryRouteTable(serverDestName, serverAddress), serverContext);
             //System.out.println("Unreachable server....!");
             //return;
-            registerToAnotherServer(serverDestName, addressDest, serverContext); // TODO
+            //registerToAnotherServer(serverDestName, addressDest, serverContext); // TODO
         } catch (IOException e) {
             logger.severe("OUT CONNEXION WITH ANOTHER SERVER FINISHED BY IOEXCEPTION");
         }
@@ -766,6 +783,8 @@ public class ServerChatFusion {
         private ReadingState readingState = ReadingState.WAITING_OPCODE;
         private Interlocutor interlocutor;
         private byte currentCommand;
+
+        private final BlockingQueue<ByteBuffer> connexionAsks = new ArrayBlockingQueue<>(100);
 
         private Context(SelectionKey key, ServerChatFusion server, Interlocutor interlocutor) {
             this.key = key;
@@ -995,6 +1014,11 @@ public class ServerChatFusion {
                 return; // the selector gave a bad hint
             System.out.println("NEW SORTANTE CONNEXION");
             key.interestOps(SelectionKey.OP_READ); // needed OP_WRITE to send FUSION_REGISTER_SERVER(8) or SERVER_CONNEXION(15) ?
+
+            if(interlocutor == Interlocutor.SERVER){
+                System.out.println("Sending message 15 with info :  " + server.serverName + server.serverAddress.getAddress() + ":" + server.port);
+                queueCommand(new ServerConnexion(server.serverName, new SocketAddressToken(server.serverAddress.getAddress(), server.port)).toBuffer());
+            }
         }
 
         enum ReadingState {

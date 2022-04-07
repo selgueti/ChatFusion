@@ -343,28 +343,27 @@ public class ServerFusionManager {
             }
 
             case 12 -> {
-                System.out.println("TABLE ROUTES RECEIVING : Fusion_state = " + context.fusionState + ", from " + context);
-                System.out.println("bufferIN = " + context.bufferIn);
+                //System.out.println("TABLE ROUTES RECEIVING : Fusion_state = " + context.fusionState + ", from " + context);
+                //System.out.println("bufferIN = " + context.bufferIn);
                 switch (context.fusionRouteTableSendReader.process(context.bufferIn)) {
                     case ERROR -> {
-                        System.out.println("CASE ERROR");
+                        //System.out.println("CASE ERROR");
                         return ProcessStatus.ERROR;
                     }
                     case REFILL -> {
-                        System.out.println("CASE REFILL");
-                        System.out.println("bufferIN refill = " + context.bufferIn);
+                        //System.out.println("CASE REFILL");
+                        //System.out.println("bufferIN refill = " + context.bufferIn);
                         return ProcessStatus.REFILL;
                     }
                     case DONE -> {
-                        System.out.println("CASE DONE");
+                        //System.out.println("CASE DONE");
                         var fusionRouteTableSend = context.fusionRouteTableSendReader.get();
                         context.fusionRouteTableSendReader.reset();
                         fusionManager.addRoutesTable(fusionRouteTableSend.routes());
                         //context.fusionState = Context.FusionState.TABLE_ROUTE_RECEIVE;
-                        System.out.println("Table route receiving:{");
+                        System.out.println("Table route receiving from " + context);
                         fusionRouteTableSend.routes().entrySet().forEach(System.out::println);
                         context.readingState = Context.ReadingState.WAITING_OPCODE;
-                        System.out.println("} from " + context);
                     }
                 }
             }
@@ -553,7 +552,7 @@ public class ServerFusionManager {
 
         private void silentlyClose() {
             server.serversConnected.remove(server.retrieveServerNameFromContext(this));
-            System.out.println("remove server from map");
+            System.out.println("Server disconnected : " + this);
             try {
                 sc.close();
             } catch (IOException e) {
@@ -638,7 +637,7 @@ public class ServerFusionManager {
         private void process() throws InterruptedException {
 
             var currentFusion = fusionAsks.take();
-            System.out.println("START PROCESS");
+            System.out.println("=== START NEW FUSION ===");
             // verify if both servers are already in the map
             if (!sfm.serversConnected.containsKey(currentFusion.initiator())) {
                 // initiator is down
@@ -650,7 +649,7 @@ public class ServerFusionManager {
                 //sfm.selector.wakeup();
                 return;
             }
-            System.out.println("Server are already connected");
+            //System.out.println("Server are already connected");
 
             // send there FUSION_ROUTE_TABLE_ASK
             var contextInitiator = sfm.serversConnected.get(currentFusion.initiator());
@@ -664,7 +663,7 @@ public class ServerFusionManager {
 
             sfm.selector.wakeup();
 
-            System.out.println("Selector was wake up");
+            //System.out.println("Selector was wake up");
 
             // wait the response
             System.out.println("Waiting table routes from both server...");
@@ -672,44 +671,39 @@ public class ServerFusionManager {
             var routesInitiator = queueMap.take();
             var routesContacted = queueMap.take();
 
-            System.out.println("Table routes received !");
+            System.out.println("ROUTES TABLES RECEIVED");
             var resultRoutes = new HashMap<>(Map.copyOf(routesInitiator));
             resultRoutes.putAll(routesContacted);
 
             //check if name are all unique
             if (resultRoutes.size() != routesInitiator.size() + routesContacted.size()) {
-                System.out.println("Fusion doesn't match");
+                System.out.println("Fusion unauthorized");
                 contextInitiator.queueCommand(new FusionInvalidName().toBuffer());
                 contextContacted.queueCommand(new FusionInvalidName().toBuffer());
                 contextInitiator.fusionState = Context.FusionState.NO;
                 contextContacted.fusionState = Context.FusionState.NO;
-                //contextInitiator.routes = null;
-                //contextContacted.routes = null;
-                //sfm.selector.wakeup();
                 return;
             }
 
-            System.out.println("Fusion match");
-            System.out.println("RESULT MAP = " + resultRoutes);
+            System.out.println("Fusion authorized");
+            System.out.println("RESULT ROUTES = " + resultRoutes);
 
             // send the resultRoutes Map to all cluster's server
             resultRoutes.forEach(
-                    (sererName, serverSocketAddress) -> {
-                        var entryMap = new EntryRouteTable(sererName, serverSocketAddress);
+                    (serverName, serverSocketAddress) -> {
+                        var entryMap = new EntryRouteTable(serverName, serverSocketAddress);
                         if (sfm.serversConnected.containsKey(entryMap)) {
                             var context = sfm.serversConnected.get(entryMap);
                             context.queueCommand(new FusionTableRouteResult(resultRoutes.size(), resultRoutes).toBuffer());
-                            System.out.println("Sending new routes table to " + sererName + serverSocketAddress.address() + ":" + serverSocketAddress.port() + " contains " + new FusionTableRouteResult(resultRoutes.size(), resultRoutes).toBuffer());
+                            System.out.println("Sending new routes table to " + serverName + serverSocketAddress.address() + ":" + serverSocketAddress.port());
                         } else {
-                            logger.info("FUSION : SERVER FROM NEW CLUSTER NOT IN MAP");
+                            logger.severe("FUSION : SERVER FROM NEW CLUSTER NOT IN MAP");
                         }
                     }
             );
             System.out.println("ROUTES TABLES ARE ALL SEND");
             contextInitiator.fusionState = Context.FusionState.NO;
             contextContacted.fusionState = Context.FusionState.NO;
-            //contextInitiator.routes = null;
-            //contextContacted.routes = null;
             sfm.selector.wakeup();
         }
     }
