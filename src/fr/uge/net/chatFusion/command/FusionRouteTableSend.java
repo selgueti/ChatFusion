@@ -31,9 +31,8 @@ public record FusionRouteTableSend(int nbMembers, Map<String, SocketAddressToken
         buffer.put(OPCODE).putInt(nbMembers);
         for (var servName : routes.keySet()) {
             var bbServName = UTF8.encode(servName);
-            var bbSocketAddr = routes.get(servName).toBuffer();
-
-            if(Integer.BYTES + bbServName.remaining() + bbSocketAddr.remaining() > buffer.remaining()){
+            var bbSocketAddr = routes.get(servName).toBuffer().flip();
+            if (Integer.BYTES + bbServName.remaining() + bbSocketAddr.remaining() > buffer.remaining()) {
                 // need to grow buffer
                 bufferSize *= 2;
                 var tmpBuffer = ByteBuffer.allocate(bufferSize);

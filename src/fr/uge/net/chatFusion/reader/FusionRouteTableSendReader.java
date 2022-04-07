@@ -21,6 +21,7 @@ public class FusionRouteTableSendReader implements Reader<FusionRouteTableSend> 
     @Override
     public ProcessStatus process(ByteBuffer bb) {
         if (state == State.DONE || state == State.ERROR) {
+            System.out.println("STATE ===== " + state);
             throw new IllegalStateException();
         }
         if (state == State.WAITING_NB_MEMBERS) {
@@ -73,8 +74,10 @@ public class FusionRouteTableSendReader implements Reader<FusionRouteTableSend> 
                     routes.put(currentServName, currentSocketAddress);
                     nbMembersRegistered++;
                     if(nbMembersRegistered == nbMembers){
+                        System.out.println("nbMembersRegistered == " + nbMembersRegistered + ", nbMembers" + nbMembers);
                         state = State.DONE;
                     }else{
+                        System.out.println("nbMembersRegistered != " + nbMembersRegistered + ", nbMembers" + nbMembers);
                         state = State.WAITING_SERVER_NAME;
                         return ProcessStatus.REFILL;
                     }

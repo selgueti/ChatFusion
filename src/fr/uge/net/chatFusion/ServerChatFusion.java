@@ -32,13 +32,12 @@ public class ServerChatFusion {
     private final Map<EntryRouteTable, Context> serversConnected = new HashMap<>();
 
     private final Map<String, Context> usersConnected = new HashMap<>();
+    private final InetSocketAddress serverAddress;
+    private final int port;
     private Map<String, SocketAddressToken> routes = new HashMap<>();
-
     private boolean sfmIsConnected = false;
     private Context uniqueSFMContext;
     private boolean firstLoop = true;
-    private final InetSocketAddress serverAddress;
-    private final int port;
 
     public ServerChatFusion(String serverName, int port, InetSocketAddress sfmAddress) throws IOException {
         serverSocketChannel = ServerSocketChannel.open();
@@ -161,7 +160,7 @@ public class ServerChatFusion {
             try {
                 port = Integer.parseInt(tokens[2]);
                 inetAddress = new InetSocketAddress(addressString, port).getAddress();
-                if(inetAddress == null){
+                if (inetAddress == null) {
                     System.out.println("Given address is unresolved");
                     return;
                 }
@@ -279,7 +278,7 @@ public class ServerChatFusion {
             try {
                 selector.select(this::treatKey);
                 processInstructions();
-                if(firstLoop){
+                if (firstLoop) {
                     registerToServerFusionManager();
                     firstLoop = false;
                     sfmIsConnected = true;
@@ -388,7 +387,7 @@ public class ServerChatFusion {
                         context.serverConnexionReader.reset();
                         // TODO Check if the current interlocutor is really a cluster's server
                         context.interlocutor = Context.Interlocutor.SERVER;
-                        serversConnected.put(new EntryRouteTable(serverConnexion.name(), serverConnexion.socketAddressToken()) , context);
+                        serversConnected.put(new EntryRouteTable(serverConnexion.name(), serverConnexion.socketAddressToken()), context);
                         context.readingState = Context.ReadingState.WAITING_OPCODE;
                     }
                 }
@@ -413,6 +412,7 @@ public class ServerChatFusion {
                 context.readingState = Context.ReadingState.WAITING_OPCODE;
             }
             case 11 -> {
+                System.out.println("Sending of routes table...");
                 context.queueCommand(new FusionRouteTableSend(routes.size(), routes).toBuffer());
                 context.readingState = Context.ReadingState.WAITING_OPCODE;
             }
@@ -431,6 +431,8 @@ public class ServerChatFusion {
                     case DONE -> {
                         var fusionTableRouteResult = context.fusionTableRouteResultReader.get();
                         context.fusionTableRouteResultReader.reset();
+                        System.out.println("New Routes Table receive :");
+                        fusionTableRouteResult.routes().entrySet().forEach(entry -> System.out.println(entry.getKey() + entry.getValue().address() + " : " + entry.getValue().port()));
                         routes = fusionTableRouteResult.routes();
                         for (var routeName : routes.keySet()) {
                             if (serverName.compareTo(routeName) < 0 && !serversConnected.containsKey(new EntryRouteTable(routeName, routes.get(routeName)))) {
@@ -440,7 +442,6 @@ public class ServerChatFusion {
                             }
                         }
                         context.readingState = Context.ReadingState.WAITING_OPCODE;
-
                     }
                 }
             }
@@ -496,10 +497,9 @@ public class ServerChatFusion {
                             }
                         } else {
                             var entry = serversConnected.keySet().stream().filter(name -> name.name().equals(messagePrivate.serverDst())).findAny();
-                            if(entry.isEmpty()){
+                            if (entry.isEmpty()) {
                                 System.out.println("message private drop, server unknown");
-                            }
-                            else{
+                            } else {
                                 var serverContext = serversConnected.get(entry.get());
                                 serverContext.queueCommand(messagePrivate.toBuffer());
                             }
@@ -531,10 +531,9 @@ public class ServerChatFusion {
                         } else {
 
                             var entry = serversConnected.keySet().stream().filter(name -> name.name().equals(filePrivate.serverDst())).findAny();
-                            if(entry.isEmpty()){
+                            if (entry.isEmpty()) {
                                 System.out.println("file private drop, server unknown");
-                            }
-                            else{
+                            } else {
                                 var serverContext = serversConnected.get(entry.get());
                                 serverContext.queueCommand(filePrivate.toBuffer());
                             }
@@ -599,10 +598,9 @@ public class ServerChatFusion {
                             }
                         } else {
                             var entry = serversConnected.keySet().stream().filter(name -> name.name().equals(messagePrivate.serverDst())).findAny();
-                            if(entry.isEmpty()){
+                            if (entry.isEmpty()) {
                                 System.out.println("message private drop, server unknown");
-                            }
-                            else{
+                            } else {
                                 var serverContext = serversConnected.get(entry.get());
                                 serverContext.queueCommand(messagePrivate.toBuffer());
                             }
@@ -629,10 +627,9 @@ public class ServerChatFusion {
                             }
                         } else {
                             var entry = serversConnected.keySet().stream().filter(name -> name.name().equals(filePrivate.serverDst())).findAny();
-                            if(entry.isEmpty()){
+                            if (entry.isEmpty()) {
                                 System.out.println("message private drop, server unknown");
-                            }
-                            else{
+                            } else {
                                 var serverContext = serversConnected.get(entry.get());
                                 serverContext.queueCommand(filePrivate.toBuffer());
                             }
@@ -663,7 +660,7 @@ public class ServerChatFusion {
 
     /**
      * Init a new connexion with serverDestName reachable at address
-     * */
+     */
     private void registerToAnotherServer(String serverDestName, InetSocketAddress addressDest) {
         SocketChannel sc;
         try {
