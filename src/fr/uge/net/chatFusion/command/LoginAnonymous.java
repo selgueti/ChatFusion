@@ -5,7 +5,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-public record LoginAnonymous(String login) {
+public record LoginAnonymous(String login) implements Frame {
     private final static byte OPCODE = 0;
     private final static Charset UTF8 = StandardCharsets.UTF_8;
 
@@ -16,6 +16,7 @@ public record LoginAnonymous(String login) {
         }
     }
 
+    @Override
     public ByteBuffer toBuffer(){
         ByteBuffer bbLogin = UTF8.encode(login);
         ByteBuffer buffer = ByteBuffer.allocate(bbLogin.remaining() + Integer.BYTES + Byte.BYTES);

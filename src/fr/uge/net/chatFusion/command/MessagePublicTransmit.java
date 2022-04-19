@@ -5,11 +5,11 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-public record MessagePublicTransmit(String server, String login, String msg){
+public record MessagePublicTransmit(String server, String login, String msg) implements Frame {
     private static final byte OPCODE = 5;
     private final static Charset UTF8 = StandardCharsets.UTF_8;
 
-    public MessagePublicTransmit{
+    public MessagePublicTransmit {
         Objects.requireNonNull(server);
         Objects.requireNonNull(login);
         Objects.requireNonNull(msg);
@@ -24,15 +24,16 @@ public record MessagePublicTransmit(String server, String login, String msg){
         }
     }
 
-    public ByteBuffer toBuffer(){
+    @Override
+    public ByteBuffer toBuffer() {
         ByteBuffer bbServerName = UTF8.encode(server);
         ByteBuffer bbLogin = UTF8.encode(login);
         ByteBuffer bbMsg = UTF8.encode(msg);
 
         ByteBuffer buffer = ByteBuffer.allocate(bbServerName.remaining()
-                                                + bbLogin.remaining()
-                                                + bbMsg.remaining()
-                                                + 3 * Integer.BYTES + Byte.BYTES);
+                + bbLogin.remaining()
+                + bbMsg.remaining()
+                + 3 * Integer.BYTES + Byte.BYTES);
         buffer.put(OPCODE);
         buffer.putInt(bbServerName.remaining()).put(bbServerName);
         buffer.putInt(bbLogin.remaining()).put(bbLogin);

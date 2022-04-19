@@ -5,7 +5,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-public record FilePrivate(String serverSrc, String loginSrc, String serverDst, String loginDst, String fileName, int nbBlocks, int blockSize, byte[] bytes) {
+public record FilePrivate(String serverSrc, String loginSrc, String serverDst, String loginDst, String fileName, int nbBlocks, int blockSize, byte[] bytes) implements Frame {
     private static final byte OPCODE = 7;
     private static final Charset UTF8 = StandardCharsets.UTF_8;
 
@@ -36,7 +36,7 @@ public record FilePrivate(String serverSrc, String loginSrc, String serverDst, S
             throw new IllegalArgumentException();
         }
     }
-
+    @Override
     public ByteBuffer toBuffer(){
         var bbServerSrc = UTF8.encode(serverSrc);
         var bbLoginSrc = UTF8.encode(loginSrc);
@@ -51,7 +51,7 @@ public record FilePrivate(String serverSrc, String loginSrc, String serverDst, S
                                                     + bbFileName.remaining()
                                                     + Integer.BYTES * 7
                                                     + Byte.BYTES * bytes.length);
-
+        buffer.put(OPCODE);
         buffer.putInt(bbServerSrc.remaining()).put(bbServerSrc);
         buffer.putInt(bbLoginSrc.remaining()).put(bbLoginSrc);
         buffer.putInt(bbServerDst.remaining()).put(bbServerDst);

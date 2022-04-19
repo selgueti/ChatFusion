@@ -6,7 +6,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-public record MessagePrivate(String serverSrc, String loginSrc, String serverDst, String loginDst, String msg) {
+public record MessagePrivate(String serverSrc, String loginSrc, String serverDst, String loginDst, String msg) implements Frame {
     private final static byte OPCODE = 6;
     private final static Charset UTF8 = StandardCharsets.UTF_8;
 
@@ -30,6 +30,7 @@ public record MessagePrivate(String serverSrc, String loginSrc, String serverDst
         }
     }
 
+    @Override
     public ByteBuffer toBuffer() {
         ByteBuffer bbServerSrc = UTF8.encode(serverSrc);
         ByteBuffer bbLoginSrc = UTF8.encode(loginSrc);

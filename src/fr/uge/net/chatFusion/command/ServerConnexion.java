@@ -5,20 +5,21 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-public record ServerConnexion(String name, SocketAddressToken socketAddressToken) {
+public record ServerConnexion(String name, SocketAddressToken socketAddressToken) implements Frame {
     private static final byte OPCODE = 15;
     private static final Charset UTF8 = StandardCharsets.UTF_8;
 
-    public ServerConnexion{
+    public ServerConnexion {
         Objects.requireNonNull(name);
         Objects.requireNonNull(socketAddressToken);
 
-        if(name.isEmpty()){
+        if (name.isEmpty()) {
             throw new IllegalArgumentException();
         }
     }
 
-    public ByteBuffer toBuffer(){
+    @Override
+    public ByteBuffer toBuffer() {
         var bbName = UTF8.encode(name);
         var bbSocketAddress = socketAddressToken.toBuffer().flip();
         var buffer = ByteBuffer.allocate(Integer.BYTES + bbName.remaining() + bbSocketAddress.remaining() + Byte.BYTES);

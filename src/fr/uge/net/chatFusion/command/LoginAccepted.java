@@ -6,7 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 
-public record LoginAccepted(String serverName) {
+public record LoginAccepted(String serverName) implements Frame {
     private final static byte OPCODE = 2;
     private final static Charset UTF8 = StandardCharsets.UTF_8;
 
@@ -17,6 +17,7 @@ public record LoginAccepted(String serverName) {
         }
     }
 
+    @Override
     public ByteBuffer toBuffer() {
         ByteBuffer bbServerName = UTF8.encode(serverName);
         ByteBuffer buffer = ByteBuffer.allocate(bbServerName.remaining() + Integer.BYTES + Byte.BYTES);

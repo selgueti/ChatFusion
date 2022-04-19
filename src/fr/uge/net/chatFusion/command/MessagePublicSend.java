@@ -5,7 +5,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-public record MessagePublicSend(String serverSrc, String loginSrc, String msg) {
+public record MessagePublicSend(String serverSrc, String loginSrc, String msg) implements Frame {
     private final static byte OPCODE = 4;
     private final static Charset UTF8 = StandardCharsets.UTF_8;
 
@@ -23,6 +23,7 @@ public record MessagePublicSend(String serverSrc, String loginSrc, String msg) {
         }
     }
 
+    @Override
     public ByteBuffer toBuffer() {
         ByteBuffer bbServerName = UTF8.encode(serverSrc);
         ByteBuffer bbLoginSrc = UTF8.encode(loginSrc);

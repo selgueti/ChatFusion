@@ -7,7 +7,7 @@ import java.util.Map;
 import java.util.Objects;
 
 
-public record FusionRouteTableSend(int nbMembers, Map<String, SocketAddressToken> routes) {
+public record FusionRouteTableSend(int nbMembers, Map<String, SocketAddressToken> routes) implements Frame {
     private final static byte OPCODE = 12;
     private final static Charset UTF8 = StandardCharsets.UTF_8;
 
@@ -25,6 +25,7 @@ public record FusionRouteTableSend(int nbMembers, Map<String, SocketAddressToken
     }
 
     // [12 (OPCODE) nb_members (INT) name_0 (STRING<=30) address0 (SOCKETADDRESS) name_1 …]
+    @Override
     public ByteBuffer toBuffer() {
         int bufferSize = 1024;
         ByteBuffer buffer = ByteBuffer.allocate(bufferSize);
