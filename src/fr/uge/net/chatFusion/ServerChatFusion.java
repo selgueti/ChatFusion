@@ -428,6 +428,7 @@ public class ServerChatFusion {
         private boolean closed = false;
         private Writer writer = null;
         private Interlocutor interlocutor;
+
         private Context(SelectionKey key, ServerChatFusion server, Interlocutor interlocutor) {
             this.key = key;
             this.sc = (SocketChannel) key.channel();
@@ -858,7 +859,7 @@ public class ServerChatFusion {
             fusionTableRouteResult.routes().forEach((key, value) -> System.out.println(key + value.address() + " : " + value.port()));
             server.routes = fusionTableRouteResult.routes();
             for (var routeName : server.routes.keySet()) {
-                var entry  = new EntryRouteTable(routeName, server.routes.get(routeName));
+                var entry = new EntryRouteTable(routeName, server.routes.get(routeName));
                 if (server.serverName.compareTo(routeName) < 0 && !server.serversConnected.containsKey(entry)) {
                     var address = server.routes.get(routeName).address().getHostAddress();
                     var port = server.routes.get(routeName).port();

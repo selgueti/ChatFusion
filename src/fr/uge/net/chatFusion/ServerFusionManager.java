@@ -2,10 +2,7 @@ package fr.uge.net.chatFusion;
 
 import fr.uge.net.chatFusion.command.*;
 import fr.uge.net.chatFusion.reader.*;
-import fr.uge.net.chatFusion.util.EntryRouteTable;
-import fr.uge.net.chatFusion.util.FusionAsk;
-import fr.uge.net.chatFusion.util.StringController;
-import fr.uge.net.chatFusion.util.Writer;
+import fr.uge.net.chatFusion.util.*;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -18,10 +15,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import static fr.uge.net.chatFusion.reader.Reader.ProcessStatus;
-
 public class ServerFusionManager {
-    private static final int TIMEOUT = 500;
     private static final int BUFFER_SIZE = 1_024;
     private static final Logger logger = Logger.getLogger(ServerFusionManager.class.getName());
     private final ServerSocketChannel serverSocketChannel;
@@ -70,7 +64,6 @@ public class ServerFusionManager {
         }
         throw new AssertionError("Context is not in serversConnected map");
     }
-
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //                                            Fusion Thread process                                               //
@@ -262,121 +255,6 @@ public class ServerFusionManager {
         }
     }
 
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    //                                           sfm commands processing                                              //
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-    private ProcessStatus processInUnregistered(Context context) {
-        // we attempt FUSION_REGISTER_SERVER(8)
-        //System.out.println("UNREGISTERED:" + context.currentCommand);
-        //System.out.println("bufferIn SFM : " + context.bufferIn);
-        if (context.currentCommand == 8) {
-            switch (context.fusionRegisterServerReader.process(context.bufferIn)) {
-                case ERROR -> {
-                    //System.out.println("ERROR");
-                    return ProcessStatus.ERROR;
-                }
-                case REFILL -> {
-                    //System.out.println("REFILL");
-                    return ProcessStatus.REFILL;
-                }
-                case DONE -> {
-                    //System.out.println("DONE !");
-                    var fusionRegisterServer = context.fusionRegisterServerReader.get();
-                    context.fusionRegisterServerReader.reset();
-
-                    var nameS1 = fusionRegisterServer.name();
-                    var socket1 = fusionRegisterServer.socketAddressToken();
-
-                    var entry = serversConnected.keySet().stream().filter(key -> key.name().equals(nameS1) && key.socketAddressToken().equals(socket1)).findAny();
-                    if (entry.isPresent()) {
-                        System.out.println("Server already registered");
-                    } else {
-                        context.authenticationState = Context.AuthenticationState.REGISTERED;
-                        var entryMap = new EntryRouteTable(nameS1, socket1);
-                        context.entryMap = entryMap; // need to retrieve by FusionManager
-                        serversConnected.put(entryMap, context);
-                        System.out.println("New registered server : " + nameS1);
-
-                    }
-                    context.readingState = Context.ReadingState.WAITING_OPCODE;
-                }
-            }
-        } else {
-            System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInUnregistered");
-            context.silentlyClose();
-            return ProcessStatus.ERROR;
-        }
-        return ProcessStatus.DONE;
-    }
-
-    private ProcessStatus processInRegistered(Context context) {
-        switch (context.currentCommand) {
-            case 9 -> {
-                switch (context.fusionInitReader.process(context.bufferIn)) {
-                    case ERROR -> {
-                        return ProcessStatus.ERROR;
-                    }
-                    case REFILL -> {
-                        return ProcessStatus.REFILL;
-                    }
-                    case DONE -> {
-                        var fusionInit = context.fusionInitReader.get();
-                        context.fusionInitReader.reset();
-
-                        var addressToCall = fusionInit.address();
-                        var optionalEntryRouteTable = serversConnected.keySet().stream()
-                                .filter(key -> key.socketAddressToken().equals(addressToCall))
-                                .findFirst();
-                        if (optionalEntryRouteTable.isEmpty()) {
-                            context.queueCommand(new FusionInexistantServer().toBuffer());
-                            System.out.println(addressToCall.address().getHostName() + ":" + addressToCall.port() + " is not registered");
-                        } else {
-                            fusionManager.register(new FusionAsk(context.entryMap, optionalEntryRouteTable.get()));
-                            System.out.println("New fusion ask add to the queue");
-                        }
-                        context.readingState = Context.ReadingState.WAITING_OPCODE;
-                        return ProcessStatus.DONE;
-                    }
-                }
-            }
-
-            case 12 -> {
-                //System.out.println("TABLE ROUTES RECEIVING : Fusion_state = " + context.fusionState + ", from " + context);
-                //System.out.println("bufferIN = " + context.bufferIn);
-                switch (context.fusionRouteTableSendReader.process(context.bufferIn)) {
-                    case ERROR -> {
-                        //System.out.println("CASE ERROR");
-                        return ProcessStatus.ERROR;
-                    }
-                    case REFILL -> {
-                        //System.out.println("CASE REFILL");
-                        //System.out.println("bufferIN refill = " + context.bufferIn);
-                        return ProcessStatus.REFILL;
-                    }
-                    case DONE -> {
-                        //System.out.println("CASE DONE");
-                        var fusionRouteTableSend = context.fusionRouteTableSendReader.get();
-                        context.fusionRouteTableSendReader.reset();
-                        fusionManager.addRoutesTable(fusionRouteTableSend.routes());
-                        //context.fusionState = Context.FusionState.TABLE_ROUTE_RECEIVE;
-                        System.out.println("Table route receiving from " + context);
-                        fusionRouteTableSend.routes().entrySet().forEach(System.out::println);
-                        context.readingState = Context.ReadingState.WAITING_OPCODE;
-                    }
-                }
-            }
-
-            default -> {
-                System.out.println("BAD RECEIVING COMMAND : " + context.currentCommand + " in processInRegistered");
-                context.silentlyClose();
-                return ProcessStatus.ERROR;
-            }
-        }
-        return ProcessStatus.DONE;
-    }
-
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //                   Context: represents the state of a discussion with a specific interlocutor                   //
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -384,28 +262,24 @@ public class ServerFusionManager {
     static private class Context {
         private final SelectionKey key;
         private final SocketChannel sc;
-        private final ServerFusionManager server; // we could also have Context as an instance class, which would naturally
         private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
         private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
         private final ArrayDeque<ByteBuffer> queueCommand = new ArrayDeque<>();
-        // readers
-        private final BytesReader opcodeReader = new BytesReader(1);
-        private final FusionRegisterServerReader fusionRegisterServerReader = new FusionRegisterServerReader();
-        private final FusionInitReader fusionInitReader = new FusionInitReader();
-        private final FusionRouteTableSendReader fusionRouteTableSendReader = new FusionRouteTableSendReader();
         private FusionState fusionState = FusionState.NO;
         private EntryRouteTable entryMap;
+        private final ServerFusionManager server; // we could also have Context as an instance class, which would naturally
         // give access to ServerFusionManager.this
         private boolean closed = false;
         private Writer writer = null;
-        private ReadingState readingState = ReadingState.WAITING_OPCODE;
         private AuthenticationState authenticationState = AuthenticationState.UNREGISTERED;
-        private byte currentCommand;
+        private final FrameReader frameReader = new FrameReader();
+        private FrameVisitor frameVisitor;
 
         private Context(SelectionKey key, ServerFusionManager server) {
             this.key = key;
             this.sc = (SocketChannel) key.channel();
             this.server = server;
+            this.frameVisitor = new UnregisteredVisitor(this, server);
         }
 
         @Override
@@ -425,7 +299,7 @@ public class ServerFusionManager {
          */
         private void processIn() {
             for (; ; ) {
-                switch (assureCurrentCommandSet()) {
+                switch (frameReader.process(bufferIn)) {
                     case ERROR -> {
                         silentlyClose();
                         return;
@@ -434,43 +308,16 @@ public class ServerFusionManager {
                         return;
                     }
                     case DONE -> {
-                        switch (authenticationState) {
-                            case UNREGISTERED -> {
-                                switch (server.processInUnregistered(this)) {
-                                    case REFILL -> {
-                                        //System.out.println("ProcessIN refill");
-                                        return;
-                                    }
-                                    case ERROR -> {
-                                        //System.out.println("ProcessIN error");
-                                        silentlyClose();
-                                        return;
-                                    }
-                                    case DONE -> {
-                                        //System.out.println("ProcessIN done");
-                                        continue;
-                                        //return;
-                                    }
-                                }
-                            }
-                            case REGISTERED -> {
-                                switch (server.processInRegistered(this)) {
-                                    case REFILL -> {
-                                        return;
-                                    }
-                                    case ERROR -> {
-                                        silentlyClose();
-                                        return;
-                                    }
-                                    case DONE -> {
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
+                        Frame frame = frameReader.get();
+                        frameReader.reset();
+                        treatFrame(frame);
                     }
                 }
             }
+        }
+
+        private void treatFrame(Frame frame) {
+            frame.accept(frameVisitor);
         }
 
         /**
@@ -482,28 +329,6 @@ public class ServerFusionManager {
             queueCommand.addLast(cmd);
             processOut();
             updateInterestOps();
-        }
-
-        /**
-         * Assure currentCommand is set
-         */
-        private ProcessStatus assureCurrentCommandSet() {
-            if (readingState == ReadingState.WAITING_OPCODE) {
-                switch (opcodeReader.process(bufferIn)) {
-                    case ERROR -> {
-                        return Reader.ProcessStatus.ERROR;
-                    }
-                    case REFILL -> {
-                        return Reader.ProcessStatus.REFILL;
-                    }
-                    case DONE -> {
-                        currentCommand = opcodeReader.get()[0];
-                        opcodeReader.reset();
-                        readingState = ReadingState.PROCESS_IN;
-                    }
-                }
-            }
-            return Reader.ProcessStatus.DONE;
         }
 
         /**
@@ -591,17 +416,211 @@ public class ServerFusionManager {
             updateInterestOps();
         }
 
-        enum ReadingState {
-            WAITING_OPCODE,
-            PROCESS_IN,
-        }
-
         enum AuthenticationState {
             UNREGISTERED, REGISTERED
         }
 
         enum FusionState {
             NO, FUSION_INIT, WAITING_TABLE_ROUTE, TABLE_ROUTE_RECEIVE, DONE
+        }
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //                          Visitors: contains the processing of messages by interlocutors                        //
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    static private class UnregisteredVisitor implements FrameVisitor {
+        private final Context context;
+        private final ServerFusionManager server;
+
+        public UnregisteredVisitor(Context context, ServerFusionManager server) {
+            this.context = context;
+            this.server = server;
+        }
+
+        @Override
+        public void visit(FilePrivate filePrivate) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(FusionInexistantServer fusionInexistantServer) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(FusionInit fusionInit) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(FusionInvalidName fusionInvalidName) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(FusionRegisterServer fusionRegisterServer) {
+            var nameS1 = fusionRegisterServer.name();
+            var socket1 = fusionRegisterServer.socketAddressToken();
+            var entry = server.serversConnected.keySet().stream().filter(key -> key.name().equals(nameS1) && key.socketAddressToken().equals(socket1)).findAny();
+            if (entry.isPresent()) {
+                System.out.println("Server already registered");
+                return;
+            }
+            context.authenticationState = Context.AuthenticationState.REGISTERED;
+            context.frameVisitor = new RegisteredVisitor(context, server);
+            var entryMap = new EntryRouteTable(nameS1, socket1);
+            context.entryMap = entryMap; // need to retrieve by FusionManager
+            server.serversConnected.put(entryMap, context);
+            System.out.println("New registered server : " + nameS1);
+        }
+
+        @Override
+        public void visit(FusionRootTableAsk fusionRootTableAsk) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(FusionRouteTableSend fusionRouteTableSend) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(FusionTableRouteResult fusionTableRouteResult) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(LoginAccepted loginAccepted) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(LoginAnonymous loginAnonymous) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(LoginRefused loginRefused) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(MessagePrivate messagePrivate) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(MessagePublicSend messagePublicSend) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(MessagePublicTransmit messagePublicTransmit) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(ServerConnexion serverConnexion) {
+            context.silentlyClose();
+        }
+    }
+
+    static private class RegisteredVisitor implements FrameVisitor {
+        private final Context context;
+        private final ServerFusionManager server;
+
+        public RegisteredVisitor(Context context, ServerFusionManager server) {
+            this.context = context;
+            this.server = server;
+        }
+
+        @Override
+        public void visit(FilePrivate filePrivate) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(FusionInexistantServer fusionInexistantServer) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(FusionInit fusionInit) {
+            var addressToCall = fusionInit.address();
+            var optionalEntryRouteTable = server.serversConnected.keySet().stream()
+                    .filter(key -> key.socketAddressToken().equals(addressToCall))
+                    .findFirst();
+            if (optionalEntryRouteTable.isEmpty()) {
+                context.queueCommand(new FusionInexistantServer().toBuffer());
+                System.out.println(addressToCall.address().getHostName() + ":" + addressToCall.port() + " is not registered");
+            } else {
+                server.fusionManager.register(new FusionAsk(context.entryMap, optionalEntryRouteTable.get()));
+                System.out.println("New fusion ask add to the queue");
+            }
+        }
+
+        @Override
+        public void visit(FusionInvalidName fusionInvalidName) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(FusionRegisterServer fusionRegisterServer) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(FusionRootTableAsk fusionRootTableAsk) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(FusionRouteTableSend fusionRouteTableSend) {
+            server.fusionManager.addRoutesTable(fusionRouteTableSend.routes());
+            //context.fusionState = Context.FusionState.TABLE_ROUTE_RECEIVE;
+            System.out.println("Table route receiving from " + context);
+            fusionRouteTableSend.routes().entrySet().forEach(System.out::println);
+        }
+
+        @Override
+        public void visit(FusionTableRouteResult fusionTableRouteResult) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(LoginAccepted loginAccepted) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(LoginAnonymous loginAnonymous) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(LoginRefused loginRefused) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(MessagePrivate messagePrivate) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(MessagePublicSend messagePublicSend) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(MessagePublicTransmit messagePublicTransmit) {
+            context.silentlyClose();
+        }
+
+        @Override
+        public void visit(ServerConnexion serverConnexion) {
+            context.silentlyClose();
         }
     }
 
