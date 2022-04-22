@@ -1,12 +1,14 @@
 package fr.uge.net.chatFusion.command;
 
+import fr.uge.net.chatFusion.util.FrameVisitor;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 
-public record FusionRegisterServer(String name, SocketAddressToken socketAddressToken) {
+public record FusionRegisterServer(String name, SocketAddressToken socketAddressToken) implements Frame {
     private final static byte OPCODE = 8;
     private final static Charset UTF8 = StandardCharsets.UTF_8;
 
@@ -18,6 +20,7 @@ public record FusionRegisterServer(String name, SocketAddressToken socketAddress
         }
     }
 
+    @Override
     public ByteBuffer toBuffer() {
         ByteBuffer bbName = UTF8.encode(name);
         ByteBuffer bbSocketAddress = socketAddressToken.toBuffer();
@@ -27,6 +30,11 @@ public record FusionRegisterServer(String name, SocketAddressToken socketAddress
 
         //System.out.println("buffer FusionRegisterServer = " + buffer);
         return buffer;
+    }
+
+    @Override
+    public void accept(FrameVisitor visitor) {
+        visitor.visit(this);
     }
 
     @Override

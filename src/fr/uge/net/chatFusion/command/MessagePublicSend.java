@@ -1,11 +1,13 @@
 package fr.uge.net.chatFusion.command;
 
+import fr.uge.net.chatFusion.util.FrameVisitor;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-public record MessagePublicSend(String serverSrc, String loginSrc, String msg) {
+public record MessagePublicSend(String serverSrc, String loginSrc, String msg) implements Frame {
     private final static byte OPCODE = 4;
     private final static Charset UTF8 = StandardCharsets.UTF_8;
 
@@ -23,6 +25,7 @@ public record MessagePublicSend(String serverSrc, String loginSrc, String msg) {
         }
     }
 
+    @Override
     public ByteBuffer toBuffer() {
         ByteBuffer bbServerName = UTF8.encode(serverSrc);
         ByteBuffer bbLoginSrc = UTF8.encode(loginSrc);
@@ -38,5 +41,10 @@ public record MessagePublicSend(String serverSrc, String loginSrc, String msg) {
                 .putInt(bbLoginSrc.remaining()).put(bbLoginSrc)
                 .putInt(bbMsg.remaining()).put(bbMsg);
         return buffer;
+    }
+
+    @Override
+    public void accept(FrameVisitor visitor) {
+        visitor.visit(this);
     }
 }
