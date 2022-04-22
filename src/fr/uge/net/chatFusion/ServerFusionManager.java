@@ -410,10 +410,9 @@ public class ServerFusionManager {
 
         @Override
         public String toString() {
-            if(entryMap != null){
+            if (entryMap != null) {
                 return entryMap.name() + entryMap.socketAddressToken().address() + ":" + entryMap.socketAddressToken().port();
-            }
-            else{
+            } else {
                 return super.toString();
             }
         }
