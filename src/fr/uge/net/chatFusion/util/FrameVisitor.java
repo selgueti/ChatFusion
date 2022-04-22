@@ -1,4 +1,4 @@
-package fr.uge.net.chatFusion.FrameVisitor;
+package fr.uge.net.chatFusion.util;
 
 import fr.uge.net.chatFusion.command.*;
 

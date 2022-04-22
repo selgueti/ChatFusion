@@ -1,12 +1,15 @@
 package fr.uge.net.chatFusion.command;
 
 
+import fr.uge.net.chatFusion.util.FrameVisitor;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-public record MessagePrivate(String serverSrc, String loginSrc, String serverDst, String loginDst, String msg) implements Frame {
+public record MessagePrivate(String serverSrc, String loginSrc, String serverDst, String loginDst,
+                             String msg) implements Frame {
     private final static byte OPCODE = 6;
     private final static Charset UTF8 = StandardCharsets.UTF_8;
 
@@ -52,5 +55,10 @@ public record MessagePrivate(String serverSrc, String loginSrc, String serverDst
                 .putInt(bbLoginDst.remaining()).put(bbLoginDst)
                 .putInt(bbMsg.remaining()).put(bbMsg);
         return buffer;
+    }
+
+    @Override
+    public void accept(FrameVisitor visitor) {
+        visitor.visit(this);
     }
 }

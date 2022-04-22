@@ -1,5 +1,7 @@
 package fr.uge.net.chatFusion.command;
 
+import fr.uge.net.chatFusion.util.FrameVisitor;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -23,6 +25,11 @@ public record LoginAccepted(String serverName) implements Frame {
         ByteBuffer buffer = ByteBuffer.allocate(bbServerName.remaining() + Integer.BYTES + Byte.BYTES);
         buffer.put(OPCODE).putInt(bbServerName.remaining()).put(bbServerName);
         return buffer;
+    }
+
+    @Override
+    public void accept(FrameVisitor visitor) {
+        visitor.visit(this);
     }
 }
 

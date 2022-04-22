@@ -1,8 +1,8 @@
 package fr.uge.net.chatFusion.command;
 
+import fr.uge.net.chatFusion.util.FrameVisitor;
+
 import java.nio.ByteBuffer;
-import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 public record FusionInit(SocketAddressToken address) implements Frame {
@@ -19,5 +19,10 @@ public record FusionInit(SocketAddressToken address) implements Frame {
         buffer.put(OPCODE);
         buffer.put(bbAddress);
         return buffer;
+    }
+
+    @Override
+    public void accept(FrameVisitor visitor) {
+        visitor.visit(this);
     }
 }

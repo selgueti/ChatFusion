@@ -1,5 +1,7 @@
 package fr.uge.net.chatFusion.command;
 
+import fr.uge.net.chatFusion.util.FrameVisitor;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -45,6 +47,11 @@ public record FusionRouteTableSend(int nbMembers, Map<String, SocketAddressToken
                     .put(bbSocketAddr);
         }
         return buffer;
+    }
+
+    @Override
+    public void accept(FrameVisitor visitor) {
+        visitor.visit(this);
     }
 }
 

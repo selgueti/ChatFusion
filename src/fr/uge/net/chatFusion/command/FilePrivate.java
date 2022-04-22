@@ -1,5 +1,7 @@
 package fr.uge.net.chatFusion.command;
 
+import fr.uge.net.chatFusion.util.FrameVisitor;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -59,5 +61,10 @@ public record FilePrivate(String serverSrc, String loginSrc, String serverDst, S
         buffer.putInt(bbFileName.remaining()).put(bbFileName);
         buffer.putInt(nbBlocks).putInt(blockSize).put(bytes);
         return buffer;
+    }
+
+    @Override
+    public void accept(FrameVisitor visitor) {
+        visitor.visit(this);
     }
 }

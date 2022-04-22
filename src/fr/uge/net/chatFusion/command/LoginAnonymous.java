@@ -1,5 +1,7 @@
 package fr.uge.net.chatFusion.command;
 
+import fr.uge.net.chatFusion.util.FrameVisitor;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -11,16 +13,21 @@ public record LoginAnonymous(String login) implements Frame {
 
     public LoginAnonymous {
         Objects.requireNonNull(login);
-        if(login.isEmpty()){
+        if (login.isEmpty()) {
             throw new IllegalArgumentException("login should not be empty");
         }
     }
 
     @Override
-    public ByteBuffer toBuffer(){
+    public ByteBuffer toBuffer() {
         ByteBuffer bbLogin = UTF8.encode(login);
         ByteBuffer buffer = ByteBuffer.allocate(bbLogin.remaining() + Integer.BYTES + Byte.BYTES);
         buffer.put(OPCODE).putInt(bbLogin.remaining()).put(bbLogin);
         return buffer;
+    }
+
+    @Override
+    public void accept(FrameVisitor visitor) {
+        visitor.visit(this);
     }
 }

@@ -1,5 +1,7 @@
 package fr.uge.net.chatFusion.command;
 
+import fr.uge.net.chatFusion.util.FrameVisitor;
+
 import java.nio.ByteBuffer;
 
 public record FusionRootTableAsk() implements Frame {
@@ -8,5 +10,10 @@ public record FusionRootTableAsk() implements Frame {
     @Override
     public ByteBuffer toBuffer(){
         return ByteBuffer.allocate(Byte.BYTES).put(OPCODE);
+    }
+
+    @Override
+    public void accept(FrameVisitor visitor) {
+        visitor.visit(this);
     }
 }
