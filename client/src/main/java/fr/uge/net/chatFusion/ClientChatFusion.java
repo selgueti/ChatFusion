@@ -520,7 +520,7 @@ public class ClientChatFusion {
         }
     }
 
-    public class FileSender {
+    private static class FileSender {
         private static final Deque<FileSendInfo> fileQueue = new ArrayDeque<>(10);
         private static ClientChatFusion client;
         private final static int TIMEOUT_STD = 100;

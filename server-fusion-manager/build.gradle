@@ -2,18 +2,15 @@ plugins {
     id 'java'
 }
 
-repositories {
-    mavenCentral()
-}
-
 dependencies {
-    implementation(project(':core'))
+    implementation project(':core')
 }
 
 jar {
     archiveBaseName = 'ServerFusionManager'
     archiveVersion = '0.1.0'
     manifest {
-        attributes('Main-Class':'fr.uge.net.chatFusion.ServerFusionManager')
+        attributes('Main-Class': 'fr.uge.net.chatFusion.ServerFusionManager')
     }
+    from project(':core').sourceSets.main.output.classesDirs
 }

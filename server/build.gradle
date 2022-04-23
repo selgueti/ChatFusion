@@ -2,18 +2,15 @@ plugins {
     id 'java'
 }
 
-repositories {
-    mavenCentral()
-}
-
 dependencies {
-    implementation(project(':core'))
+    implementation project(':core')
 }
 
 jar {
     archiveBaseName = 'ServerChatFusion'
     archiveVersion = '0.1.0'
     manifest {
-        attributes('Main-Class':'fr.uge.net.chatFusion.ServerChatFusion')
+        attributes('Main-Class': 'fr.uge.net.chatFusion.ServerChatFusion')
     }
+    from project(':core').sourceSets.main.output.classesDirs
 }
