@@ -445,15 +445,16 @@ public class ServerChatFusion {
          */
         private void processIn() {
             for (; ; ) {
-                switch (frameReader.process(bufferIn)) {
-                    case ERROR -> {
+                var status = frameReader.process(bufferIn);
+                switch (status) {
+                    case ERROR : {
                         silentlyClose();
                         return;
                     }
-                    case REFILL -> {
+                    case REFILL : {
                         return;
                     }
-                    case DONE -> {
+                    case DONE : {
                         Frame frame = frameReader.get();
                         frameReader.reset();
                         treatFrame(frame);

@@ -1,0 +1,17 @@
+plugins {
+    id 'java'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation(project(':core'))
+}
+
+jar {
+    manifest {
+        attributes('Main-Class':'fr.uge.net.chatFusion.ServerChatFusion')
+    }
+}

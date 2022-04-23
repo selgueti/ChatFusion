@@ -1,18 +1,14 @@
 package fr.uge.net.chatFusion.util;
 
-import fr.uge.net.chatFusion.ClientChatFusion;
-import fr.uge.net.chatFusion.command.FilePrivate;
+//import fr.uge.net.chatFusion.clientChatFusion.ClientChatFusion;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.util.Optional;
 
 public class FileSendInfo {
     private final BufferedReader file;
@@ -32,10 +28,11 @@ public class FileSendInfo {
         this.serverDst = serverDst;
     }
 
+    /*
     public ByteBuffer buildFieChunk(ClientChatFusion client) throws IOException {
         var data = readChunkIntoCommand();
         return client.buildFileChunk(data, serverDst, loginDst, fileName, nbChunk);
-    }
+    }*/
 
     public byte[] readChunkIntoCommand() throws IOException {
         var  limit = 0;

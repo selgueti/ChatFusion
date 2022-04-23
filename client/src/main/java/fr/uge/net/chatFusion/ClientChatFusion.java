@@ -6,24 +6,18 @@ import fr.uge.net.chatFusion.util.FileSendInfo;
 import fr.uge.net.chatFusion.util.StringController;
 import fr.uge.net.chatFusion.util.Writer;
 
-import javax.tools.StandardJavaFileManager;
-
 import static fr.uge.net.chatFusion.reader.Reader.ProcessStatus;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.net.ConnectException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.nio.channels.Channel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.logging.Logger;
@@ -69,7 +63,7 @@ public class ClientChatFusion {
     }
 
     private static void usage() {
-        System.out.println("Usage : ClientChatFusion login hostname port directory");
+        System.out.println("Usage : fr.uge.net.chatFusion.clientChatFusion.ClientChatFusion login hostname port directory");
     }
 
 
@@ -542,7 +536,7 @@ public class ClientChatFusion {
 
         private static void senderAction() {
             int sleepTime = TIMEOUT_STD;
-            for(;;){
+            /*for(;;){
                 try {
                     synchronized (fileQueue) {
                         if (fileQueue.isEmpty() && sleepTime < MAX_SLEEP_TIME) {
@@ -563,7 +557,7 @@ public class ClientChatFusion {
                 }catch (InterruptedException ie){
                     return;
                 }
-            }
+            }*/
         }
 
         public FileSender(ClientChatFusion clientInput)throws IOException{

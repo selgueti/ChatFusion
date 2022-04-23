@@ -1,4 +1,4 @@
-package fr.uge.net.chatFusion;
+package fr.uge.net.chatFusion.util;
 
 import java.io.IOException;
 import java.nio.channels.SelectionKey;
