@@ -1,0 +1,16 @@
+plugins {
+    id 'java'
+}
+
+dependencies {
+    implementation project(':core')
+}
+
+jar {
+    archiveBaseName = 'ClientChatFusion'
+    archiveVersion = '0.1.0'
+    manifest {
+        attributes('Main-Class': 'fr.uge.net.chatFusion.ClientChatFusion')
+    }
+    from project.evaluationDependsOn(':core').sourceSets.main.output.classesDirs
+}
