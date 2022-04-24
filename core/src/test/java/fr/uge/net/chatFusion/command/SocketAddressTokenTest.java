@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class SocketAddressTokenTest {
 
+    @Test
     public void toBufferIsInWriteMode() {
         SocketAddressToken socketAddressToken = new SocketAddressToken(new InetSocketAddress("localhost", 7777).getAddress(), 7777);
         assertTrue(socketAddressToken.toBuffer().position() != 0);
