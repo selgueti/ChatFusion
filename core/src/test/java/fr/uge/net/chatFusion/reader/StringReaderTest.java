@@ -66,9 +66,7 @@ public class StringReaderTest {
     @Test
     public void errorGet() {
         var sr = new StringReader();
-        assertThrows(IllegalStateException.class, () -> {
-            var res = sr.get();
-        });
+        assertThrows(IllegalStateException.class,  sr::get);
     }
 
     @Test

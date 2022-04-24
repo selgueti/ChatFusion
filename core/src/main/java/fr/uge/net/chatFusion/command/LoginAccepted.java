@@ -29,7 +29,6 @@ public record LoginAccepted(String serverName) implements Frame {
 
     @Override
     public void accept(FrameVisitor visitor) {
-        Objects.requireNonNull(visitor);
         visitor.visit(this);
     }
 }

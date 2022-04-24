@@ -37,6 +37,10 @@ public class FusionTableRouteResultReader implements Reader<FusionTableRouteResu
                 case DONE -> {
                     nbMembers = nbMembersReader.get();
                     nbMembersReader.reset();
+                    if(nbMembers < 0){
+                        state = State.ERROR;
+                        return ProcessStatus.ERROR;
+                    }
                     //System.out.println("### FTRR nbMembers = " + nbMembers);
                     state = State.WAITING_SERVER_NAME;
                 }

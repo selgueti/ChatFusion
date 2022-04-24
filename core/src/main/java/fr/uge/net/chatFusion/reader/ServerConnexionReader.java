@@ -60,7 +60,7 @@ public class ServerConnexionReader implements Reader<ServerConnexion> {
 
     @Override
     public ServerConnexion get() {
-        System.out.println("State (get) == " + state);
+        //System.out.println("State (get) == " + state);
         if (state != State.DONE) {
             throw new IllegalStateException();
         }
