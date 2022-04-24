@@ -30,3 +30,10 @@ Then see :
  - `server/build/docs/javadoc/index.html`
  - `client/build/docs/javadoc/index.html`
  - `server-fusion-manager/build/docs/javadoc/index.html`
+
+## Testing
+```
+./gradlew test
+```
+Then see :
+ - `core/build/reports/tests/test/index.html`
