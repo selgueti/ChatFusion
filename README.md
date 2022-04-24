@@ -21,6 +21,13 @@ Client :
 java -jar client/build/libs/ClientChatFusion-0.1.0.jar <username> <server-adress> <server-port> <folder>
 ```
 
+## Simulation
+```
+chmod +x start-simulation.sh
+./start-simulation.sh
+```
+Launch a ServerFusionManager, 4 servers and 4 clients each one connected to a server
+
 ## Documentation
 ```
 ./gradlew javadoc
