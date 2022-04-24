@@ -1,2 +1,2 @@
 rootProject.name = 'ChatFusion'
-include('app', 'core', 'server', 'server-fusion-manager', 'client')
+include('core', 'server', 'server-fusion-manager', 'client')
