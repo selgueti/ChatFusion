@@ -15,7 +15,7 @@ public class LoginAnonymousTest {
     }
 
     @Test
-    void checkBufferLength() {
+    public void checkBufferLength() {
         String username = "€€$@funky_login@$€€";
         LoginAnonymous login = new LoginAnonymous(username);
         var length = StandardCharsets.UTF_8.encode(username).remaining() + Integer.BYTES + Byte.BYTES;

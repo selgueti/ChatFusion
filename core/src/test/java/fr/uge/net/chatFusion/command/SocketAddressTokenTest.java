@@ -15,7 +15,7 @@ public class SocketAddressTokenTest {
     }
 
     @Test
-    void checkBufferLength() {
+    public void checkBufferLength() {
         SocketAddressToken socketAddressToken = new SocketAddressToken(new InetSocketAddress("localhost", 7777).getAddress(), 7777);
         var length = Byte.BYTES + Byte.BYTES * socketAddressToken.address().getAddress().length + Integer.BYTES;
         assertEquals(length, socketAddressToken.toBuffer().position());

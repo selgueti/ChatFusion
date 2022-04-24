@@ -23,7 +23,7 @@ public class ServerConnexionTest {
     }
 
     @Test
-    void checkBufferLength() {
+    public void checkBufferLength() {
         var socketAddress = new SocketAddressToken(new InetSocketAddress("localhost", 7777).getAddress(), 7777);
         ServerConnexion serverConnexion = new ServerConnexion("Server1", socketAddress);
         var length = Byte.BYTES + Integer.BYTES + UTF8.encode("Server1").remaining() + socketAddress.toBuffer().flip().remaining();

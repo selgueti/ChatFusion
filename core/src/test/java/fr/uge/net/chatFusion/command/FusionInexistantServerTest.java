@@ -13,7 +13,7 @@ public class FusionInexistantServerTest {
     }
 
     @Test
-    void checkBufferLength() {
+    public void checkBufferLength() {
         FusionInexistantServer fusionInexistantServer = new FusionInexistantServer();
         var length = Byte.BYTES;
         assertEquals(length, fusionInexistantServer.toBuffer().position());

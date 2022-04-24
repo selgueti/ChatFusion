@@ -23,7 +23,7 @@ public class FusionRouteTableSendTest {
     }
 
     @Test
-    void checkBufferLength() {
+    public void checkBufferLength() {
         var socketAddress = new SocketAddressToken(new InetSocketAddress("localhost", 7777).getAddress(), 7777);
         FusionRouteTableSend fusionRouteTableSend = new FusionRouteTableSend(1, Map.of("server1", socketAddress));
         var length = Byte.BYTES + Integer.BYTES * 2 + UTF8.encode("server1").remaining() + socketAddress.toBuffer().flip().remaining();

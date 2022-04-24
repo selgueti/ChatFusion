@@ -13,7 +13,7 @@ public class FusionRouteTableAskTest {
     }
 
     @Test
-    void checkBufferLength() {
+    public void checkBufferLength() {
         FusionRootTableAsk fusionRouteTableAsk = new FusionRootTableAsk();
         var length = Byte.BYTES;
         assertEquals(length, fusionRouteTableAsk.toBuffer().position());

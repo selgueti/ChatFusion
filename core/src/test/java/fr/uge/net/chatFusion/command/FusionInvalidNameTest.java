@@ -14,7 +14,7 @@ public class FusionInvalidNameTest {
     }
 
     @Test
-    void checkBufferLength() {
+    public void checkBufferLength() {
         FusionInvalidName fusionRouteTableSend = new FusionInvalidName();
         var length = Byte.BYTES;
         assertEquals(length, fusionRouteTableSend.toBuffer().position());

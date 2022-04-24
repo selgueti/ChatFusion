@@ -15,7 +15,7 @@ public class FusionInitTest {
     }
 
     @Test
-    void checkBufferLength() {
+    public void checkBufferLength() {
         var socketAddress = new SocketAddressToken(new InetSocketAddress("localhost", 7777).getAddress(), 7777);
         FusionInit fusionInit = new FusionInit(socketAddress);
         var length = Byte.BYTES + socketAddress.toBuffer().flip().remaining();

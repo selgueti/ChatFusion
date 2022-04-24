@@ -13,7 +13,7 @@ public class LoginRefusedTest {
     }
 
     @Test
-    void checkBufferLength() {
+    public void checkBufferLength() {
         LoginRefused loginRefused = new LoginRefused();
         var length = Byte.BYTES;
         assertEquals(length, loginRefused.toBuffer().position());

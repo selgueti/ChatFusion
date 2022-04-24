@@ -14,7 +14,7 @@ public class LoginAcceptedTest {
     }
 
     @Test
-    void checkBufferLength() {
+    public void checkBufferLength() {
         String serverName = "€€$@Server1@$€€";
         LoginAccepted login = new LoginAccepted(serverName);
         var length = StandardCharsets.UTF_8.encode(serverName).remaining() + Integer.BYTES + Byte.BYTES;

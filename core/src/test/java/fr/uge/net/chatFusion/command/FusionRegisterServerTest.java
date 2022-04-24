@@ -18,7 +18,7 @@ public class FusionRegisterServerTest {
     }
 
     @Test
-    void checkBufferLength() {
+    public void checkBufferLength() {
         var serverSrc = "server1";
         var socketAddress = new SocketAddressToken(new InetSocketAddress("localhost", 7777).getAddress(), 7777);
         FusionRegisterServer fusionRegisterServer = new FusionRegisterServer(serverSrc, socketAddress);

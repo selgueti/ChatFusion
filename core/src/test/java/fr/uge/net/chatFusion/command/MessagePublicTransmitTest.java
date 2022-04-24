@@ -17,7 +17,7 @@ public class MessagePublicTransmitTest {
     }
 
     @Test
-    void checkBufferLength() {
+    public void checkBufferLength() {
         var serverSrc = "server1";
         var loginSrc = "4lic€";
         var msg = "Hello World ! #€";

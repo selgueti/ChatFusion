@@ -17,7 +17,7 @@ public class MessagePrivateTest {
     }
 
     @Test
-    void checkBufferLength() {
+    public void checkBufferLength() {
         var serverSrc = "server1";
         var loginSrc = "4lic€";
         var serverDst = "server2";
