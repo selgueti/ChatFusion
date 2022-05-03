@@ -536,9 +536,8 @@ public class ClientChatFusion {
 
         private static void senderAction() {
             int sleepTime = TIMEOUT_STD;
-            /*for(;;){
+            for(;;){
                 try {
-                    synchronized (fileQueue) {
                         if (fileQueue.isEmpty() && sleepTime < MAX_SLEEP_TIME) {
                             sleepTime += sleepTime * 2;
                         }
@@ -548,8 +547,7 @@ public class ClientChatFusion {
                             client.uniqueContext.queueCommand(fileInfo.buildFieChunk(client));
                             client.selector.wakeup();
                         }
-                    }
-                }catch (IOException ioe){
+                    } catch (IOException ioe){
                     throw new UncheckedIOException(ioe);
                 }
                 try {
@@ -557,7 +555,7 @@ public class ClientChatFusion {
                 }catch (InterruptedException ie){
                     return;
                 }
-            }*/
+            }
         }
 
         public FileSender(ClientChatFusion clientInput)throws IOException{
