@@ -2,7 +2,6 @@ package fr.uge.net.chatFusion;
 
 import fr.uge.net.chatFusion.command.*;
 import fr.uge.net.chatFusion.reader.*;
-import fr.uge.net.chatFusion.util.FileSendInfo;
 import fr.uge.net.chatFusion.util.StringController;
 import fr.uge.net.chatFusion.util.Writer;
 
@@ -12,10 +11,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.Channel;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
-import java.nio.channels.SocketChannel;
+import java.nio.channels.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -544,7 +540,7 @@ public class ClientChatFusion {
                         if (!fileQueue.isEmpty()) {
                             sleepTime = TIMEOUT_STD;
                             var fileInfo = fileQueue.peekFirst();
-                            client.uniqueContext.queueCommand(fileInfo.buildFieChunk(client));
+                            client.uniqueContext.queueCommand(fileInfo.buildFileChunk(client));
                             if(fileInfo.isFullySent()){
                                 fileQueue.removeFirst();
                             }
@@ -571,4 +567,49 @@ public class ClientChatFusion {
         }
     }
 
+    public static class FileSendInfo {
+        private final FileChannel file;
+        private final String loginDst;
+        private final String fileName;
+        private final String serverDst;
+        private static final int MAX_IN_COMMAND = 5000;
+        private final int nbChunk;
+        private int nbChunkSent;
+        private ByteBuffer chunk = ByteBuffer.allocate(MAX_IN_COMMAND);
+        public FileSendInfo(String filePath, String loginDst, String serverDst, String fileName) throws IOException {
+            Path path = Path.of(filePath);
+            this.file  = FileChannel.open(path);
+            this.nbChunk = (Math.toIntExact(file.size()) / MAX_IN_COMMAND) +1;
+            this.fileName = fileName;
+            this.loginDst = loginDst;
+            this.serverDst = serverDst;
+            this.nbChunkSent = 0;
+        }
+
+        public boolean isFullySent() throws IOException {
+            if(nbChunk == nbChunkSent){
+                file.close();
+                System.out.println("Just finished sending a file");
+            }
+            return nbChunkSent == nbChunk;
+        }
+
+        public ByteBuffer buildFileChunk(ClientChatFusion client) throws IOException {
+            chunk.clear();
+            var readValue = 1;
+            while(chunk.hasRemaining()){
+                var nbBytesRead = file.read(chunk);
+                System.out.println("nbBytesRead : " + nbBytesRead);
+                if(nbBytesRead <= 0){
+                    break;
+                }
+            }
+            nbChunkSent++;
+            chunk.flip(); // -> Sets position & limit in order to have an exact array and not full of trailing 0.
+            var data = chunk.array();
+            System.out.println("data arrya size = " + data.length);
+            chunk.flip();
+            return client.buildFileChunk(data, serverDst, loginDst, fileName, nbChunk);
+        }
+    }
 }
