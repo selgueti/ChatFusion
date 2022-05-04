@@ -543,8 +543,11 @@ public class ClientChatFusion {
                         }
                         if (!fileQueue.isEmpty()) {
                             sleepTime = TIMEOUT_STD;
-                            var fileInfo = fileQueue.peek();
+                            var fileInfo = fileQueue.peekFirst();
                             client.uniqueContext.queueCommand(fileInfo.buildFieChunk(client));
+                            if(fileInfo.isFullySent()){
+                                fileQueue.removeFirst();
+                            }
                             client.selector.wakeup();
                         }
                     } catch (IOException ioe){

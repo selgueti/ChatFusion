@@ -19,6 +19,7 @@ public class FileSendInfo {
     private int progress = 0;
     private static final int MAX_IN_COMMAND = 5000;
     private final int nbChunk;
+    private int nbChunkSent;
     private ByteBuffer chunk = ByteBuffer.allocate(MAX_IN_COMMAND);
     public FileSendInfo(String filePath, String loginDst, String serverDst, String fileName) throws IOException {
         Path path = Path.of(filePath);
@@ -27,15 +28,24 @@ public class FileSendInfo {
         this.fileName = fileName;
         this.loginDst = loginDst;
         this.serverDst = serverDst;
+        this.nbChunkSent = 0;
+    }
+
+    public boolean isFullySent(){
+        return nbChunkSent == nbChunk;
     }
 
     public ByteBuffer buildFileChunk(ClientChatFusion client) throws IOException {
         var readValue = 1;
         while(chunk.hasRemaining()){
-            readValue = file.read(chunk);
-            if(readValue <= 0){
-
+            if(file.read(chunk) <= 0){
+                break;
             }
         }
+        nbChunkSent++;
+        chunk.flip(); // -> Sets position & limit in order to have an exact array and not full of trailing 0.
+        var data = chunk.array();
+        chunk.flip();
         return client.buildFileChunk(data, serverDst, loginDst, fileName, nbChunk);
     }
+}
