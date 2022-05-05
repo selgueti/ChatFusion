@@ -244,9 +244,9 @@ public class ClientChatFusion {
     private void writeFilePiece(FilePrivate fp){
         Path filepath = Path.of(directory, fp.fileName());
         try{
-            var file = Files.write(filepath, fp.bytes(), StandardOpenOption.APPEND);
+            var file = Files.write(filepath, fp.bytes(),  StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         }catch(IOException ioe){
-            logger.info("could not write file piece because:" + ioe.getCause());
+            logger.info("could not write file piece because:" + ioe + "\n\tpath = "+filepath);
         }
         return;
     }
@@ -284,6 +284,7 @@ public class ClientChatFusion {
                     case REFILL -> {return ProcessStatus.REFILL;}
                     case DONE -> {
                         var filePiece = context.fileReader.get();
+                        context.fileReader.reset();
                         var fileId = hashFileInfo(filePiece);
                         writeFilePiece(filePiece);
                         context.fileTransferProgress.merge(fileId, 1, Integer::sum);
@@ -542,6 +543,7 @@ public class ClientChatFusion {
                             var fileInfo = fileQueue.peekFirst();
                             client.uniqueContext.queueCommand(fileInfo.buildFileChunk(client));
                             if(fileInfo.isFullySent()){
+                                System.out.println(client.uniqueContext.queueCommand);
                                 fileQueue.removeFirst();
                             }
                             client.selector.wakeup();
@@ -579,7 +581,7 @@ public class ClientChatFusion {
         public FileSendInfo(String filePath, String loginDst, String serverDst, String fileName) throws IOException {
             Path path = Path.of(filePath);
             this.file  = FileChannel.open(path);
-            this.nbChunk = (Math.toIntExact(file.size()) / MAX_IN_COMMAND) +1;
+            this.nbChunk = (Math.toIntExact(file.size()) / MAX_IN_COMMAND) + ((file.size()%MAX_IN_COMMAND == 0)?0:1);
             this.fileName = fileName;
             this.loginDst = loginDst;
             this.serverDst = serverDst;
@@ -606,7 +608,7 @@ public class ClientChatFusion {
             }
             nbChunkSent++;
             chunk.flip(); // -> Sets position & limit in order to have an exact array and not full of trailing 0.
-            var data = chunk.array();
+            var data = Arrays.copyOf(chunk.array(), chunk.limit());
             System.out.println("data arrya size = " + data.length);
             chunk.flip();
             return client.buildFileChunk(data, serverDst, loginDst, fileName, nbChunk);
