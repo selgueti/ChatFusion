@@ -36,7 +36,8 @@ public class FilePrivateReader implements Reader<FilePrivate> {
     @Override
     public ProcessStatus process(ByteBuffer bb) {
         if (state == State.DONE || state == State.ERROR) {
-            throw new IllegalStateException();
+            System.out.println(state);
+            throw new IllegalStateException(new FilePrivate(serverSrc, loginSrc, serverDst, loginDst, fileName, nbBlocks, blockSize, bytes).toString());
         }
         if (state == State.WAITING_SERVER_SRC) {
             switch (stringReader.process(bb)) {
@@ -198,6 +199,7 @@ public class FilePrivateReader implements Reader<FilePrivate> {
         stringReader.reset();
         intReader.reset();
         state = State.WAITING_SERVER_SRC;
+        bytesReader = null;
         serverSrc = null;
         loginSrc = null;
         serverDst = null;

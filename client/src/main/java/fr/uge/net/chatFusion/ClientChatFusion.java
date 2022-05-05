@@ -2,7 +2,6 @@ package fr.uge.net.chatFusion;
 
 import fr.uge.net.chatFusion.command.*;
 import fr.uge.net.chatFusion.reader.*;
-import fr.uge.net.chatFusion.util.FileSendInfo;
 import fr.uge.net.chatFusion.util.StringController;
 import fr.uge.net.chatFusion.util.Writer;
 
@@ -12,10 +11,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.Channel;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
-import java.nio.channels.SocketChannel;
+import java.nio.channels.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -248,9 +244,9 @@ public class ClientChatFusion {
     private void writeFilePiece(FilePrivate fp){
         Path filepath = Path.of(directory, fp.fileName());
         try{
-            var file = Files.write(filepath, fp.bytes(), StandardOpenOption.APPEND);
+            var file = Files.write(filepath, fp.bytes(),  StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         }catch(IOException ioe){
-            logger.info("could not write file piece because:" + ioe.getCause());
+            logger.info("could not write file piece because:" + ioe + "\n\tpath = "+filepath);
         }
         return;
     }
@@ -288,6 +284,7 @@ public class ClientChatFusion {
                     case REFILL -> {return ProcessStatus.REFILL;}
                     case DONE -> {
                         var filePiece = context.fileReader.get();
+                        context.fileReader.reset();
                         var fileId = hashFileInfo(filePiece);
                         writeFilePiece(filePiece);
                         context.fileTransferProgress.merge(fileId, 1, Integer::sum);
@@ -536,20 +533,22 @@ public class ClientChatFusion {
 
         private static void senderAction() {
             int sleepTime = TIMEOUT_STD;
-            /*for(;;){
+            for(;;){
                 try {
-                    synchronized (fileQueue) {
                         if (fileQueue.isEmpty() && sleepTime < MAX_SLEEP_TIME) {
                             sleepTime += sleepTime * 2;
                         }
                         if (!fileQueue.isEmpty()) {
                             sleepTime = TIMEOUT_STD;
-                            var fileInfo = fileQueue.peek();
-                            client.uniqueContext.queueCommand(fileInfo.buildFieChunk(client));
+                            var fileInfo = fileQueue.peekFirst();
+                            client.uniqueContext.queueCommand(fileInfo.buildFileChunk(client));
+                            if(fileInfo.isFullySent()){
+                                System.out.println(client.uniqueContext.queueCommand);
+                                fileQueue.removeFirst();
+                            }
                             client.selector.wakeup();
                         }
-                    }
-                }catch (IOException ioe){
+                    } catch (IOException ioe){
                     throw new UncheckedIOException(ioe);
                 }
                 try {
@@ -557,7 +556,7 @@ public class ClientChatFusion {
                 }catch (InterruptedException ie){
                     return;
                 }
-            }*/
+            }
         }
 
         public FileSender(ClientChatFusion clientInput)throws IOException{
@@ -570,4 +569,49 @@ public class ClientChatFusion {
         }
     }
 
+    public static class FileSendInfo {
+        private final FileChannel file;
+        private final String loginDst;
+        private final String fileName;
+        private final String serverDst;
+        private static final int MAX_IN_COMMAND = 5000;
+        private final int nbChunk;
+        private int nbChunkSent;
+        private ByteBuffer chunk = ByteBuffer.allocate(MAX_IN_COMMAND);
+        public FileSendInfo(String filePath, String loginDst, String serverDst, String fileName) throws IOException {
+            Path path = Path.of(filePath);
+            this.file  = FileChannel.open(path);
+            this.nbChunk = (Math.toIntExact(file.size()) / MAX_IN_COMMAND) + ((file.size()%MAX_IN_COMMAND == 0)?0:1);
+            this.fileName = fileName;
+            this.loginDst = loginDst;
+            this.serverDst = serverDst;
+            this.nbChunkSent = 0;
+        }
+
+        public boolean isFullySent() throws IOException {
+            if(nbChunk == nbChunkSent){
+                file.close();
+                System.out.println("Just finished sending a file");
+            }
+            return nbChunkSent == nbChunk;
+        }
+
+        public ByteBuffer buildFileChunk(ClientChatFusion client) throws IOException {
+            chunk.clear();
+            var readValue = 1;
+            while(chunk.hasRemaining()){
+                var nbBytesRead = file.read(chunk);
+                System.out.println("nbBytesRead : " + nbBytesRead);
+                if(nbBytesRead <= 0){
+                    break;
+                }
+            }
+            nbChunkSent++;
+            chunk.flip(); // -> Sets position & limit in order to have an exact array and not full of trailing 0.
+            var data = Arrays.copyOf(chunk.array(), chunk.limit());
+            System.out.println("data arrya size = " + data.length);
+            chunk.flip();
+            return client.buildFileChunk(data, serverDst, loginDst, fileName, nbChunk);
+        }
+    }
 }
