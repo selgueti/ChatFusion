@@ -114,12 +114,13 @@ public class ClientChatFusion {
             }
             if(instruction.startsWith("/")){
                 System.out.println("detected file instruction");
-                var file = Path.of(tokens[1].split(" ", 2)[1]);
+                var filename = tokens[1].split(" ", 2)[1];
+                var filePath = Path.of(directory, filename);
                 try {
-                    var fp = new FileSendInfo(file.toString(), loginDst, serverDst, file.getFileName().toString());
+                    var fp = new FileSendInfo(filePath.toString(), loginDst, serverDst, filename);
                     fileSender.sendNewFile(fp);
                 }catch(IOException ioe){
-                    System.out.println("invalid file");
+                    System.out.println("invalid file: " + filePath);
                 }
                 return ByteBuffer.allocate(0);
             }
