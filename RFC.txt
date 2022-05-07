@@ -9,7 +9,7 @@ Fonctionnement général et terminologie :
 ----------------------------------------
 
 
-Serveur: possède un nom qui ne doit pas dépasser 30 octets une fois encodé en UTF8, ce nom est fixé pour toute la durée de vie du serveur et doit être composé avec les caractères suivants: [a-zA-Z0-9_]+. Il permet aux clients de se connecter au réseau ChatFusion et doit connaître l’adresse (SOCKETADRESS) du serveurFusionManager à son lancement.
+Serveur: possède un nom qui ne doit pas dépasser 30 octets une fois encodé en UTF8, ce nom est fixé pour toute la durée de vie du serveur. Il permet aux clients de se connecter au réseau ChatFusion et doit connaître l’adresse (SOCKETADRESS) du serveurFusionManager à son lancement.
 
 Cluster: un cluster de serveur forme un sous-réseau au sein duquel, tous les serveurs connaissent les adresses (SOCKETADRESS) de tous les autres membres du cluster. Un tel cluster peut ne contenir qu'un serveur.
 
@@ -21,9 +21,9 @@ Représentation des données :
 
 Les entiers (INT) sur 4 octets signés et les longs (LONG) sur 8 octets signés sont tous transmis en BigEndian.
 
-Les chaînes de caractères (STRING) sont encodées en UTF-8 BigEndian et précédées de la taille de leur représentation en octets sur un LONG.
+Les chaînes de caractères (STRING) sont encodées en UTF-8 BigEndian et précédées de la taille de leur représentation en octets sur un INT.
 
-    STRING = taille (LONG) chaîne encodée en UTF-8
+    STRING = taille (INT) chaîne encodée en UTF-8
 
 Une adresse IP (IPADDRESS) est représentée par un octet valant 4 ou 6 selon que l'adresse est au format IPv4 ou IPv6 suivi des 4 octets ou 16 octets de l'adresse selon qu'elle est IPv4 ou IPv6.
 
@@ -52,7 +52,11 @@ LOGIN_ANONYMOUS(0) = 0 (OPCODE) login (STRING<=30)
 Pour une identification avec mot de passe, le client enverra la commande LOGIN_PASSWORD (1) d'OPCODE 1 suivi d'une STRING contenant le login et d'une STRING contenant le mot de passe. Les deux strings ne peuvent pas faire plus de 30 octets.
 
 LOGIN_PASSWORD(1) = 1 (OPCODE) login (STRING<=30) password (STRING<=30)
-LOGIN_ANONYMOUS
+
+Si le serveur accepte l'authentification, il renvoie la commande LOGIN_ACCEPTED(2) d'OPCODE 2.
+
+LOGIN_ACCEPTED(2) = 2 (OPCODE) serverName (STRING<=30)
+
 Si le serveur refuse l'authentification, il renvoie la commande LOGIN_REFUSED(3) d'OPCODE 3.
 
 LOGIN_REFUSED(3) = 3 (OPCODE)
@@ -66,15 +70,15 @@ a) Message public :
    -----------------
 Pour envoyer un message à tous les clients connectés dans le cluster de son serveur, un client envoie une commande MESSAGE_PUBLIC_SEND (4) d’OPCODE 4 au serveur auquel il est connecté directement.
 
-MESSAGE_PUBLIC_SEND (4) = 4 (OPCODE) serveur_src(STRING <= 30) login_src  (STRING<=30) msg (STRING <= 1024).
+MESSAGE_PUBLIC_SEND (4) = 4 (OPCODE) serveur_src(STRING <= 30) login_src (STRING<=30) msg (STRING <= 1024).
 
 Le login doit être le login utilisé lors de l'identification.
 Le message msg ne peut pas occuper plus de 1024 octets.
 
-Le serveur qui reçoit une commande MESSAGE_PUBLIC_SEND(5) d’OPCODE 5 d’un client après avoir vérifié la validité du login:
-Le transmet à tous ses clients, ormis l'expéditeur. Puis le transmet à tout son cluster. Ceci à l'aide de la commande MESSAGE_PUBLIC_TRANSMIT(5) d'OPCODE 5.
+Le serveur qui reçoit une commande MESSAGE_PUBLIC_SEND(4) d’OPCODE 4 d’un client après avoir vérifié la validité du login:
+Le transmet à tous ses clients, puis le transmet à tout son cluster. Ceci à l'aide de la commande MESSAGE_PUBLIC_TRANSMIT(5) d'OPCODE 5.
 
-MESSAGE_PUBLIC_TRANSMIT (5) = 5 (OPCODE)  serveur (STRING <= 30) login (STRING <= 30) msg (STRING <= 1024).
+MESSAGE_PUBLIC_TRANSMIT (5) = 5 (OPCODE) serveur (STRING <= 30) login (STRING <= 30) msg (STRING <= 1024).
 
 Un serveur recevant cette commande la transmet à tous ses clients.
 
@@ -146,7 +150,7 @@ A) Enregistrement du serveur auprès du ServerFusionManager
 A envoie une commande pour s’enregistrer auprès du ServerFusionManager.
 FUSION_REGISTER_SERVER(8) d’OPCODE 8.
 
-FUSION_REGISTER_SERVER(8) = 8 (OPCODE) name (STRING<=30)
+FUSION_REGISTER_SERVER(8) = 8 (OPCODE) name (STRING<=30) adresse (SOCKETADDRESS)
 
 
 B) Initiation de la fusion
@@ -184,7 +188,7 @@ FUSION_TABLE_ROUTE_RESULT(14) = 14 (OPCODE) nb_members (INT) name_0 (STRING<=30)
 
 Lors de la récéption d'une nouvelle table de routage (déjà triée par ServerFusionManager), les serveurs sont chargé d'établire les connexions avec tous les "nouveaux" serveurs dont les noms sont lexicographiquement inférieur avec une commande SERVER_CONNEXION(15) d'OPCODE 15.
 
-SERVER_CONNEXION(15) = 15 (OPCODE) name (STRING<=30)
+SERVER_CONNEXION(15) = 15 (OPCODE) name (STRING<=30) adresse (SOCKETADDRESS)
 
 À ce stade ServerFusionManager peut traiter une nouvelle demande de fusion.
 
