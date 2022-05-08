@@ -417,8 +417,7 @@ public class ClientChatFusion {
         private static final Deque<FileSendInfo> fileQueue = new ArrayDeque<>(10);
         private static ClientChatFusion client;
         private final static int TIMEOUT_STD = 100;
-        private final static int MAX_SLEEP_TIME = 3000;
-        private final static int COMMAND_QUEUE_FULL_TIMEOUT = 200;
+        private final static int MAX_SLEEP_TIME = 1000;
 
         // methods:
         public boolean sendNewFile(FileSendInfo fileSendInfo){
@@ -432,7 +431,7 @@ public class ClientChatFusion {
             for(;;){
                 try {
                         if (fileQueue.isEmpty() && sleepTime < MAX_SLEEP_TIME) {
-                            sleepTime += sleepTime * 2;
+                            sleepTime +=  TIMEOUT_STD;
                         }
                         if (!fileQueue.isEmpty()) {
                             sleepTime = TIMEOUT_STD;
