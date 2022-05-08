@@ -671,7 +671,6 @@ public class ServerFusionManager {
          * Passive attempt if queue is empty
          */
         private void process() throws InterruptedException {
-
             var currentFusion = fusionAsks.take();
             System.out.println("=== START NEW FUSION ===");
             // verify if both servers are already in the map
@@ -685,22 +684,14 @@ public class ServerFusionManager {
                 //sfm.selector.wakeup();
                 return;
             }
-            //System.out.println("Server are already connected");
-
             // send there FUSION_ROUTE_TABLE_ASK
             var contextInitiator = sfm.serversConnected.get(currentFusion.initiator());
             contextInitiator.fusionState = Context.FusionState.WAITING_TABLE_ROUTE;
             contextInitiator.queueCommand(new FusionRootTableAsk().toBuffer());
-            //sfm.selector.wakeup();
-
             var contextContacted = sfm.serversConnected.get(currentFusion.contacted());
             contextContacted.fusionState = Context.FusionState.WAITING_TABLE_ROUTE;
             contextContacted.queueCommand(new FusionRootTableAsk().toBuffer());
-
             sfm.selector.wakeup();
-
-            //System.out.println("Selector was wake up");
-
             // wait the response
             System.out.println("Waiting table routes from both server...");
             // construct result routes Map
@@ -710,7 +701,6 @@ public class ServerFusionManager {
             System.out.println("ROUTES TABLES RECEIVED");
             var resultRoutes = new HashMap<>(Map.copyOf(routesInitiator));
             resultRoutes.putAll(routesContacted);
-
             //check if name are all unique
             if (resultRoutes.size() != routesInitiator.size() + routesContacted.size()) {
                 System.out.println("Fusion unauthorized");
@@ -720,10 +710,8 @@ public class ServerFusionManager {
                 contextContacted.fusionState = Context.FusionState.NO;
                 return;
             }
-
             System.out.println("Fusion authorized");
             System.out.println("RESULT ROUTES = " + resultRoutes);
-
             // send the resultRoutes Map to all cluster's server
             resultRoutes.forEach(
                     (serverName, serverSocketAddress) -> {
