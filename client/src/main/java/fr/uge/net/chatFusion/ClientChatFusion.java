@@ -214,37 +214,6 @@ public class ClientChatFusion {
     //                                           client commands processing                                           //
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    /*private ProcessStatus processInUnregistered(Context context) {
-        if (context.currentCommand == 2) {
-            switch (context.loginAcceptedReader.process(context.bufferIn)) {
-                case ERROR -> {
-                    //System.out.println("Case ERROR");
-                    return ProcessStatus.ERROR;
-                }
-                case REFILL -> {
-                    //System.out.println("Case REFILL");
-                    return ProcessStatus.REFILL;
-                }
-                case DONE -> {
-                    //System.out.println("Case DONE");
-                    serverName = context.loginAcceptedReader.get().serverName();
-                    context.loginAcceptedReader.reset();
-                    System.out.println("Authentication to " + serverName  + " success with login : " + login);
-                    console.start();
-                    context.authenticationState = Context.AuthenticationState.LOGGED;
-                }
-            }
-        }
-        if (context.currentCommand == 3) {
-            System.out.println("Username already used, please re-start and chose another one");
-            //console.interrupt(); // not need because console was not started yet at this point
-            context.silentlyClose();
-            Thread.currentThread().interrupt(); // we are in main thread, so this closes the main program.
-        }
-        context.readingState = Context.ReadingState.WAITING_OPCODE;
-        return ProcessStatus.DONE;
-    }*/
-
     private Integer hashFileInfo(FilePrivate fp){
         return Objects.hash(fp.serverSrc(), fp.loginSrc(), fp.fileName());
     }
@@ -259,61 +228,6 @@ public class ClientChatFusion {
         return;
     }
 
-    //private ProcessStatus processInLogged(Context context) {
-
-        /*switch (context.currentCommand) {
-            case 5 -> {
-                switch(context.messagePublicTransmitReader.process(context.bufferIn)){
-                    case ERROR -> {return ProcessStatus.ERROR;}
-                    case REFILL -> {return ProcessStatus.REFILL;}
-                    case DONE -> {
-                        var messagePublic = context.messagePublicTransmitReader.get();
-                        context.messagePublicTransmitReader.reset();
-                        System.out.println(messagePublic.login() + "@" + messagePublic.server() + " PUBLIC: " + messagePublic.msg());
-                    }
-                }
-            }
-            case 6 -> {
-                switch (context.messagePrivateReader.process(context.bufferIn)) {
-                    case ERROR -> {return ProcessStatus.ERROR;}
-                    case REFILL -> {
-                        return ProcessStatus.REFILL;
-                    }
-                    case DONE -> {
-                        var messagePrivate = context.messagePrivateReader.get();
-                        context.messagePrivateReader.reset();
-                        System.out.println(messagePrivate.loginSrc() + "@" + messagePrivate.serverSrc() + " : " + messagePrivate.msg());
-                    }
-                }
-            }
-            case 7 -> {
-                // TODO build file + log file receiving
-                switch (context.fileReader.process(context.bufferIn)){
-                    case ERROR -> {return ProcessStatus.ERROR;}
-                    case REFILL -> {return ProcessStatus.REFILL;}
-                    case DONE -> {
-                        var filePiece = context.fileReader.get();
-                        context.fileReader.reset();
-                        var fileId = hashFileInfo(filePiece);
-                        writeFilePiece(filePiece);
-                        context.fileTransferProgress.merge(fileId, 1, Integer::sum);
-                        if (context.fileTransferProgress.get(fileId) == filePiece.nbBlocks()){
-                            System.out.println("received file: " + filePiece.fileName()+ " can be found in folder " + directory);
-                        }
-                    }
-                }
-            }
-            default -> {
-                System.out.println("OPCODE unknown or unexpected, drop command");
-                context.silentlyClose();
-                Thread.currentThread().interrupt();
-                return ProcessStatus.ERROR;
-            }
-        }*/
-      /*  context.readingState = Context.ReadingState.WAITING_OPCODE;
-        return ProcessStatus.DONE;
-    }*/
-
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //                   Context: represents the state of a discussion with a specific interlocutor                   //
@@ -326,17 +240,9 @@ public class ClientChatFusion {
         private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
         private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
         private final ArrayDeque<ByteBuffer> queueCommand = new ArrayDeque<>();
-        /*private final BytesReader opcodeReader = new BytesReader(1);
-        private final LoginAcceptedReader loginAcceptedReader = new LoginAcceptedReader();
-        private final MessagePublicTransmitReader messagePublicTransmitReader = new MessagePublicTransmitReader();
-        private final MessagePrivateReader messagePrivateReader = new MessagePrivateReader();
-        private final FilePrivateReader fileReader = new FilePrivateReader();*/
         private final Map<Integer, Integer> fileTransferProgress = new HashMap<>();
         private boolean closed = false;
         private Writer writer = null;
-
-        //private byte currentCommand;
-        //private ReadingState readingState = ReadingState.WAITING_OPCODE;
         private AuthenticationState authenticationState = AuthenticationState.UNREGISTERED;
 
         private final FrameReader frameReader = new FrameReader();
@@ -390,27 +296,6 @@ public class ClientChatFusion {
             processOut();
             updateInterestOps();
         }
-
-       /*private ProcessStatus assureCurrentCommandSet() {
-            if (readingState == Context.ReadingState.WAITING_OPCODE) {
-
-                //System.out.println("assureCurrentCommandSet....");
-                switch (opcodeReader.process(bufferIn)) {
-                    case ERROR -> {
-                        return ProcessStatus.ERROR;}
-                    case REFILL -> {
-                        return ProcessStatus.REFILL;
-                    }
-                    case DONE -> {
-                        currentCommand = opcodeReader.get()[0];
-                        opcodeReader.reset();
-                        readingState = Context.ReadingState.PROCESS_IN;
-                        return ProcessStatus.DONE;
-                    }
-                }
-            }
-            return ProcessStatus.DONE;
-        }*/
 
         /**
          * Try to fill bufferOut from the message queue
@@ -502,15 +387,6 @@ public class ClientChatFusion {
             if (!sc.finishConnect())
                 return; // the selector gave a bad hint
             key.interestOps(SelectionKey.OP_READ); // OP_WRITE to send the LoginAnonymous command ?
-        }
-
-        private boolean isLogged() {
-            return authenticationState == AuthenticationState.LOGGED;
-        }
-
-        enum ReadingState {
-            WAITING_OPCODE,
-            PROCESS_IN
         }
 
         private enum AuthenticationState {
