@@ -428,6 +428,8 @@ public class ServerChatFusion {
         private boolean closed = false;
         private Writer writer = null;
         private Interlocutor interlocutor;
+        
+        private String userLogin;
 
         private Context(SelectionKey key, ServerChatFusion server, Interlocutor interlocutor) {
             this.key = key;
@@ -447,14 +449,14 @@ public class ServerChatFusion {
             for (; ; ) {
                 var status = frameReader.process(bufferIn);
                 switch (status) {
-                    case ERROR : {
+                    case ERROR -> {
                         silentlyClose();
                         return;
                     }
-                    case REFILL : {
+                    case REFILL -> {
                         return;
                     }
-                    case DONE : {
+                    case DONE -> {
                         Frame frame = frameReader.get();
                         frameReader.reset();
                         treatFrame(frame);
@@ -663,6 +665,7 @@ public class ServerChatFusion {
                 return;
             }
             context.interlocutor = Context.Interlocutor.CLIENT;
+            context.userLogin = loginAnonymous.login();
             context.frameVisitor = new ToClientVisitor(context, server);
             server.usersConnected.put(loginAnonymous.login(), context);
             context.queueCommand(new LoginAccepted(server.serverName).toBuffer());
@@ -711,6 +714,14 @@ public class ServerChatFusion {
 
         @Override
         public void visit(FilePrivate filePrivate) {
+            if (!filePrivate.serverSrc().equals(server.serverName)){
+                context.silentlyClose();
+                return;
+            }
+            if (!filePrivate.loginSrc().equals(context.userLogin)){
+                context.silentlyClose();
+                return;
+            }
             if (filePrivate.serverDst().equals(server.serverName) && server.usersConnected.containsKey(filePrivate.loginDst())) {
                 var destContext = server.usersConnected.get(filePrivate.loginDst());
                 destContext.queueCommand(filePrivate.toBuffer());
@@ -775,6 +786,15 @@ public class ServerChatFusion {
 
         @Override
         public void visit(MessagePrivate messagePrivate) {
+            if (!messagePrivate.serverSrc().equals(server.serverName)){
+                context.silentlyClose();
+                return;
+            }
+            if (!messagePrivate.loginSrc().equals(context.userLogin)){
+                context.silentlyClose();
+                return;
+            }
+            
             if (messagePrivate.serverDst().equals(server.serverName) && server.usersConnected.containsKey(messagePrivate.loginDst())) {
                 var destContext = server.usersConnected.get(messagePrivate.loginDst());
                 destContext.queueCommand(messagePrivate.toBuffer());
@@ -789,6 +809,14 @@ public class ServerChatFusion {
 
         @Override
         public void visit(MessagePublicSend messagePublicSend) {
+            if (!messagePublicSend.serverSrc().equals(server.serverName)){
+                context.silentlyClose();
+                return;
+            }
+            if (!messagePublicSend.loginSrc().equals(context.userLogin)){
+                context.silentlyClose();
+                return;
+            }
             var messagePublicTransmit = new MessagePublicTransmit(messagePublicSend.serverSrc(),
                     messagePublicSend.loginSrc(),
                     messagePublicSend.msg());
