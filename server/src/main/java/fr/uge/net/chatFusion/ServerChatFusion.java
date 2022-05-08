@@ -361,8 +361,7 @@ public class ServerChatFusion {
         sc.configureBlocking(false);
         var selectionKey = sc.register(selector, SelectionKey.OP_READ);
         selectionKey.attach(new Context(selectionKey, this, Context.Interlocutor.UNKNOWN));
-        System.out.println("NEW CONNEXION FROM " + sc.getRemoteAddress());
-        processInstructionInfoComplete();
+        System.out.println("new connexion from " + sc.getRemoteAddress());
     }
 
     private void silentlyClose(SelectionKey key) {
@@ -547,8 +546,8 @@ public class ServerChatFusion {
         private void silentlyClose() {
             switch (interlocutor) {
                 case CLIENT -> {
-                    server.usersConnected.remove(server.retrieveClientNameFromContext(this));
-                    System.out.println("remove client from map");
+                    server.usersConnected.remove(this.userLogin);
+                    System.out.println(this.userLogin  + " has left");
                 }
                 case UNKNOWN -> {
                 }
@@ -597,7 +596,7 @@ public class ServerChatFusion {
          */
         private void doWrite() throws IOException {
             bufferOut.flip();
-            System.out.println("WROTE " + sc.write(bufferOut) + "bytes");
+            sc.write(bufferOut);
             bufferOut.compact();
             processOut();
             updateInterestOps();
@@ -610,11 +609,10 @@ public class ServerChatFusion {
         public void doConnect() throws IOException {
             if (!sc.finishConnect())
                 return; // the selector gave a bad hint
-            System.out.println("NEW SORTANTE CONNEXION");
             key.interestOps(SelectionKey.OP_READ); // needed OP_WRITE to send FUSION_REGISTER_SERVER(8) or SERVER_CONNEXION(15) ?
 
             if (interlocutor == Interlocutor.SERVER) {
-                System.out.println("Sending message 15 with info :  " + server.serverName + server.serverAddress.getAddress() + ":" + server.port);
+                System.out.println("Sending new connexion with info :  " + server.serverName + server.serverAddress.getAddress() + ":" + server.port);
                 queueCommand(new ServerConnexion(server.serverName, new SocketAddressToken(server.serverAddress.getAddress(), server.port)).toBuffer());
             }
         }

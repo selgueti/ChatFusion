@@ -6,8 +6,6 @@ import fr.uge.net.chatFusion.util.FrameVisitor;
 import fr.uge.net.chatFusion.util.StringController;
 import fr.uge.net.chatFusion.util.Writer;
 
-import static fr.uge.net.chatFusion.reader.Reader.ProcessStatus;
-
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
@@ -587,7 +585,7 @@ public class ClientChatFusion {
         @Override
         public void visit(LoginAccepted loginAccepted) {
             client.serverName = loginAccepted.serverName();
-            System.out.println("Authentication to" + client.serverName + "success with login : " + client.login);
+            System.out.println("Authentication to " + client.serverName + " success with login : " + client.login);
             client.console.start();
             context.authenticationState = Context.AuthenticationState.LOGGED;
             context.frameVisitor = new LoggedVisitor(context, client);
