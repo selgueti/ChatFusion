@@ -37,6 +37,10 @@ public record FusionRegisterServer(String name, SocketAddressToken socketAddress
         visitor.visit(this);
     }
 
+    /**
+     * debugg tool
+     * @return a string describint the fields values.
+     */
     @Override
     public String toString() {
         return "FusionRegisterServer{" +

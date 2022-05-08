@@ -15,6 +15,9 @@ import java.util.concurrent.BlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+/**
+ * A server dedicated to operation fusions as described in the FusionManager version of the CHatFusion RFC.
+ */
 public class ServerFusionManager {
     private static final int BUFFER_SIZE = 1_024;
     private static final Logger logger = Logger.getLogger(ServerFusionManager.class.getName());
@@ -27,7 +30,12 @@ public class ServerFusionManager {
     private final FusionManager fusionManager = new FusionManager(this);
     private final int port;
 
-
+    /**
+     * <b>Constructor</b>
+     * Build the basis of the server.
+     * @param port the port this server will listen to for new connections.
+     * @throws IOException
+     */
     public ServerFusionManager(int port) throws IOException {
         serverSocketChannel = ServerSocketChannel.open();
         serverSocketChannel.bind(new InetSocketAddress(port));
@@ -39,6 +47,12 @@ public class ServerFusionManager {
         this.port = port;
     }
 
+    /**
+     * Creates a Fusion Manager on the console.
+     * @param args the command line argument, should be a single port number.
+     * @throws NumberFormatException should the port number be invalid
+     * @throws IOException should the port binding fail.
+     */
     public static void main(String[] args) throws NumberFormatException, IOException {
         if (args.length != 1) {
             usage();
@@ -193,6 +207,10 @@ public class ServerFusionManager {
     //                                                selection loop                                                  //
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    /**
+     * Launches the new FusionManager and its subprocesses.
+     * @throws IOException should hte port binding fail.
+     */
     public void launch() throws IOException {
         System.out.println(this);
         serverSocketChannel.configureBlocking(false);
