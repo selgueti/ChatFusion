@@ -2,6 +2,7 @@ package fr.uge.net.chatFusion;
 
 import fr.uge.net.chatFusion.command.*;
 import fr.uge.net.chatFusion.reader.*;
+import fr.uge.net.chatFusion.util.FrameVisitor;
 import fr.uge.net.chatFusion.util.StringController;
 import fr.uge.net.chatFusion.util.Writer;
 
@@ -37,6 +38,12 @@ public class ClientChatFusion {
 
     public ByteBuffer buildFileChunk(byte[] data, String serverDst, String loginDst, String fileName, int nbChunk){
         return new FilePrivate(serverName, login, serverDst, loginDst, fileName, nbChunk, data.length, data).toBuffer();
+    }
+
+    private void eject(){
+        System.out.println("OPCODE unknown or unexpected, drop command");
+        uniqueContext.silentlyClose();
+        Thread.currentThread().interrupt();
     }
 
     public ClientChatFusion(String login, InetSocketAddress serverAddress, String directory) throws IOException {
@@ -207,7 +214,7 @@ public class ClientChatFusion {
     //                                           client commands processing                                           //
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    private ProcessStatus processInUnregistered(Context context) {
+    /*private ProcessStatus processInUnregistered(Context context) {
         if (context.currentCommand == 2) {
             switch (context.loginAcceptedReader.process(context.bufferIn)) {
                 case ERROR -> {
@@ -236,7 +243,7 @@ public class ClientChatFusion {
         }
         context.readingState = Context.ReadingState.WAITING_OPCODE;
         return ProcessStatus.DONE;
-    }
+    }*/
 
     private Integer hashFileInfo(FilePrivate fp){
         return Objects.hash(fp.serverSrc(), fp.loginSrc(), fp.fileName());
@@ -252,8 +259,9 @@ public class ClientChatFusion {
         return;
     }
 
-    private ProcessStatus processInLogged(Context context) {
-        switch (context.currentCommand) {
+    //private ProcessStatus processInLogged(Context context) {
+
+        /*switch (context.currentCommand) {
             case 5 -> {
                 switch(context.messagePublicTransmitReader.process(context.bufferIn)){
                     case ERROR -> {return ProcessStatus.ERROR;}
@@ -301,10 +309,10 @@ public class ClientChatFusion {
                 Thread.currentThread().interrupt();
                 return ProcessStatus.ERROR;
             }
-        }
-        context.readingState = Context.ReadingState.WAITING_OPCODE;
+        }*/
+      /*  context.readingState = Context.ReadingState.WAITING_OPCODE;
         return ProcessStatus.DONE;
-    }
+    }*/
 
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -318,23 +326,28 @@ public class ClientChatFusion {
         private final ByteBuffer bufferIn = ByteBuffer.allocate(BUFFER_SIZE);
         private final ByteBuffer bufferOut = ByteBuffer.allocate(BUFFER_SIZE);
         private final ArrayDeque<ByteBuffer> queueCommand = new ArrayDeque<>();
-        private final BytesReader opcodeReader = new BytesReader(1);
+        /*private final BytesReader opcodeReader = new BytesReader(1);
         private final LoginAcceptedReader loginAcceptedReader = new LoginAcceptedReader();
         private final MessagePublicTransmitReader messagePublicTransmitReader = new MessagePublicTransmitReader();
         private final MessagePrivateReader messagePrivateReader = new MessagePrivateReader();
-        private final FilePrivateReader fileReader = new FilePrivateReader();
+        private final FilePrivateReader fileReader = new FilePrivateReader();*/
         private final Map<Integer, Integer> fileTransferProgress = new HashMap<>();
         private boolean closed = false;
         private Writer writer = null;
 
-        private byte currentCommand;
-        private ReadingState readingState = ReadingState.WAITING_OPCODE;
+        //private byte currentCommand;
+        //private ReadingState readingState = ReadingState.WAITING_OPCODE;
         private AuthenticationState authenticationState = AuthenticationState.UNREGISTERED;
+
+        private final FrameReader frameReader = new FrameReader();
+        private FrameVisitor frameVisitor;
+
 
         private Context(SelectionKey key, ClientChatFusion client) {
             this.key = key;
             this.sc = (SocketChannel) key.channel();
             this.client = client;
+            frameVisitor = new UnregisteredVisitor(this, client);
         }
 
         /**
@@ -345,36 +358,26 @@ public class ClientChatFusion {
          */
         private void processIn() {
             for (; ; ) {
-                switch(assureCurrentCommandSet()){
-                    case ERROR -> {silentlyClose(); return;}
-                    case REFILL -> {return;}
-                    case DONE -> {
-                        switch (authenticationState) {
-                            case UNREGISTERED -> {
-                                switch (client.processInUnregistered(this)){
-                                    case REFILL -> {return;}
-                                    case DONE -> {continue;}
-                                    case ERROR -> {
-                                        silentlyClose();
-                                        return;
-                                    }
-                                }
-                            }
-                            case LOGGED -> {
-                                switch (client.processInLogged(this)){
-                                    case REFILL -> {return;}
-                                    case DONE -> {continue;}
-                                    case ERROR -> {
-                                        silentlyClose();
-                                        return;
-                                    }
-                                }
-                            }
-                        }
+                var status = frameReader.process(bufferIn);
+                switch(status){
+                    case ERROR:{
+                        silentlyClose();
+                        return;
+                    }
+                    case REFILL:{
+                        return;
+                    }
+                    case DONE:{
+                        Frame frame = frameReader.get();
+                        frameReader.reset();
+                        treatFrame(frame);
                     }
                 }
-
             }
+        }
+
+        private void treatFrame(Frame frame){
+            frame.accept(frameVisitor);
         }
 
         /**
@@ -388,10 +391,7 @@ public class ClientChatFusion {
             updateInterestOps();
         }
 
-        /**
-         * Assure currentCommand is set
-         */
-        private ProcessStatus assureCurrentCommandSet() {
+       /*private ProcessStatus assureCurrentCommandSet() {
             if (readingState == Context.ReadingState.WAITING_OPCODE) {
 
                 //System.out.println("assureCurrentCommandSet....");
@@ -410,7 +410,7 @@ public class ClientChatFusion {
                 }
             }
             return ProcessStatus.DONE;
-        }
+        }*/
 
         /**
          * Try to fill bufferOut from the message queue
@@ -613,6 +613,187 @@ public class ClientChatFusion {
             System.out.println("data arrya size = " + data.length);
             chunk.flip();
             return client.buildFileChunk(data, serverDst, loginDst, fileName, nbChunk);
+        }
+    }
+
+    public static class UnregisteredVisitor implements  FrameVisitor {
+        private final Context context;
+        private final ClientChatFusion client;
+
+        public UnregisteredVisitor(Context context, ClientChatFusion client){
+            this.context = context;
+            this.client = client;
+        }
+
+        @Override
+        public void visit(FilePrivate filePrivate) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(FusionInexistantServer fusionInexistantServer) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(FusionInit fusionInit) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(FusionInvalidName fusionInvalidName) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(FusionRegisterServer fusionRegisterServer) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(FusionRootTableAsk fusionRootTableAsk) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(FusionRouteTableSend fusionRouteTableSend) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(FusionTableRouteResult fusionTableRouteResult) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(LoginAccepted loginAccepted) {
+            client.serverName = loginAccepted.serverName();
+            System.out.println("Authentication to" + client.serverName + "success with login : " + client.login);
+            client.console.start();
+            context.authenticationState = Context.AuthenticationState.LOGGED;
+            context.frameVisitor = new LoggedVisitor(context, client);
+        }
+
+        @Override
+        public void visit(LoginAnonymous loginAnonymous) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(LoginRefused loginRefused) {
+            System.out.println("Username already used, please re-start and chose another one");
+            //console.interrupt(); // not need because console was not started yet at this point
+            context.silentlyClose();
+            Thread.currentThread().interrupt(); // we are in main thread, so this closes the main program.
+        }
+
+        @Override
+        public void visit(MessagePrivate messagePrivate) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(MessagePublicSend messagePublicSend) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(MessagePublicTransmit messagePublicTransmit) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(ServerConnexion serverConnexion) {
+            client.eject();
+        }
+    }
+    public static class LoggedVisitor implements FrameVisitor {
+        private final Context context;
+        private final ClientChatFusion client;
+
+        public LoggedVisitor(Context context, ClientChatFusion client){
+            this.context = context;
+            this.client = client;
+        }
+
+        @Override
+        public void visit(FilePrivate filePrivate) {
+            var fileId = client.hashFileInfo(filePrivate);
+            client.writeFilePiece(filePrivate);
+            context.fileTransferProgress.merge(fileId, 1, Integer::sum);
+            if (context.fileTransferProgress.get(fileId) == filePrivate.nbBlocks()){
+                System.out.println("received file: " + filePrivate.fileName()+ " can be found in folder " + client.directory);
+            }
+        }
+
+        @Override
+        public void visit(FusionInexistantServer fusionInexistantServer) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(FusionInit fusionInit) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(FusionInvalidName fusionInvalidName) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(FusionRegisterServer fusionRegisterServer) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(FusionRootTableAsk fusionRootTableAsk) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(FusionRouteTableSend fusionRouteTableSend) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(FusionTableRouteResult fusionTableRouteResult) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(LoginAccepted loginAccepted) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(LoginAnonymous loginAnonymous) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(LoginRefused loginRefused) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(MessagePrivate messagePrivate) {
+            System.out.println(messagePrivate.loginSrc() + "@" + messagePrivate.serverSrc() + " : " + messagePrivate.msg());
+        }
+
+        @Override
+        public void visit(MessagePublicSend messagePublicSend) {
+            client.eject();
+        }
+
+        @Override
+        public void visit(MessagePublicTransmit messagePublicTransmit) {
+            System.out.println(messagePublicTransmit.login() + "@" + messagePublicTransmit.server() + " PUBLIC: " + messagePublicTransmit.msg());
+        }
+
+        @Override
+        public void visit(ServerConnexion serverConnexion) {
+            client.eject();
         }
     }
 }
