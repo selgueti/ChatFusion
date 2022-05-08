@@ -17,6 +17,9 @@ import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+/**
+ * A server that will behave according the FusionManager version of the ChatFusion RFC.
+ */
 public class ServerChatFusion {
     private static final int BUFFER_SIZE = 1_024;
     private static final Logger logger = Logger.getLogger(ServerChatFusion.class.getName());
@@ -37,6 +40,14 @@ public class ServerChatFusion {
     private Context uniqueSFMContext;
     private boolean firstLoop = true;
 
+    /**
+     * <b>Constructor</b>
+     * Builds a new ChatFusion server.
+     * @param serverName the name of this server as displayed on sceen
+     * @param port the port it will listen to
+     * @param sfmAddress the address of a FusionManager server.
+     * @throws IOException if it could not open the channel with Fusion manager.
+     */
     public ServerChatFusion(String serverName, int port, InetSocketAddress sfmAddress) throws IOException {
         serverSocketChannel = ServerSocketChannel.open();
         serverAddress = new InetSocketAddress("localhost", port);
@@ -50,6 +61,12 @@ public class ServerChatFusion {
         routes.put(serverName, new SocketAddressToken(serverAddress.getAddress(), port));
     }
 
+    /**
+     * Starts a new Chatusion server on the console.
+     * @param args the commandline arguments, shoul include a name, port number, and the addres of a Fusion Manager.
+     * @throws NumberFormatException should the port number be invalid
+     * @throws IOException should the fusion manager be unavailable.
+     */
     public static void main(String[] args) throws NumberFormatException, IOException {
         if (args.length != 4) {
             usage();
@@ -122,7 +139,7 @@ public class ServerChatFusion {
     }
 
     /**
-     * Send instructions to the selector via messageController and wake it up
+     * Sends instructions to the selector via messageController and wakes it up
      *
      * @param instruction - user input
      * @throws InterruptedException - if thread has been interrupted
@@ -250,6 +267,10 @@ public class ServerChatFusion {
     //                                                selection loop                                                  //
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    /**
+     * Launches the server and its subprocesses.
+     * @throws IOException should the FusionManager be unreachable for fist handshake.
+     */
     public void launch() throws IOException {
         System.out.println(this);
         console.start();
@@ -582,6 +603,10 @@ public class ServerChatFusion {
             updateInterestOps();
         }
 
+        /**
+         * Connects the server to another server.
+         * @throws IOException
+         */
         public void doConnect() throws IOException {
             if (!sc.finishConnect())
                 return; // the selector gave a bad hint

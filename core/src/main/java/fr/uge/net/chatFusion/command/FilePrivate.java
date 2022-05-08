@@ -7,11 +7,25 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
+/**
+ * The storage for information about a file chunk.
+ */
 public record FilePrivate(String serverSrc, String loginSrc, String serverDst, String loginDst, String fileName,
                           int nbBlocks, int blockSize, byte[] bytes) implements Frame {
     private static final byte OPCODE = 7;
     private static final Charset UTF8 = StandardCharsets.UTF_8;
 
+    /**
+     * Constructor.
+     * @param serverSrc The source server of the chunk
+     * @param loginSrc The source client (connected to source server) of the chunk
+     * @param serverDst the destination server.
+     * @param loginDst the destination client.
+     * @param fileName the name of the file this chunk belongs to.
+     * @param nbBlocks the tola number of chunk
+     * @param blockSize the size of this chunk
+     * @param bytes the actual chunk
+     */
     public FilePrivate {
         Objects.requireNonNull(serverSrc);
         Objects.requireNonNull(loginSrc);
@@ -40,6 +54,9 @@ public record FilePrivate(String serverSrc, String loginSrc, String serverDst, S
         }
     }
 
+    /**
+     * Implements Frame interface function toBuffer.
+     */
     @Override
     public ByteBuffer toBuffer() {
         var bbServerSrc = UTF8.encode(serverSrc);
@@ -65,6 +82,10 @@ public record FilePrivate(String serverSrc, String loginSrc, String serverDst, S
         return buffer;
     }
 
+    /**
+     * Implements Frame interface visitor partern.
+     * @param visitor the frame visitor (allows us to destinguish beween several general states)
+     */
     @Override
     public void accept(FrameVisitor visitor) {
         visitor.visit(this);

@@ -3,6 +3,9 @@ package fr.uge.net.chatFusion.util;
 import java.nio.ByteBuffer;
 import java.util.Objects;
 
+/**
+ * Writes any given buffer into another piece by piece if needed.
+ */
 public class Writer {
     private final ByteBuffer internalBuffer;
 
@@ -12,8 +15,10 @@ public class Writer {
     }
 
     /**
+     * Fills the given buffer with information from its internal buffer.
      * The convention is that buffer is in write-mode before the call to fillBuffer and
      * after the call
+     * @param buffer the buffer to fill.
      */
     public void fillBuffer(ByteBuffer buffer) {
         Objects.requireNonNull(buffer);

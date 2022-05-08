@@ -2,6 +2,9 @@ package fr.uge.net.chatFusion.util;
 
 import fr.uge.net.chatFusion.command.*;
 
+/**
+ * The secound half to the 2 way visitor patern.
+ */
 public interface FrameVisitor {
 
     void visit(FilePrivate filePrivate);

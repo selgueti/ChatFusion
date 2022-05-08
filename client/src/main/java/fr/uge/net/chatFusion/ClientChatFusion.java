@@ -19,7 +19,9 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.logging.Logger;
 
-
+/**
+ * Implements Client according to FusionManager version fo ChatFusion.
+ */
 public class ClientChatFusion {
 
     static private final int BUFFER_SIZE = 10_000;
@@ -36,16 +38,13 @@ public class ClientChatFusion {
     private Context uniqueContext;
     private boolean firstSend = true;
 
-    public ByteBuffer buildFileChunk(byte[] data, String serverDst, String loginDst, String fileName, int nbChunk){
-        return new FilePrivate(serverName, login, serverDst, loginDst, fileName, nbChunk, data.length, data).toBuffer();
-    }
-
-    private void eject(){
-        System.out.println("OPCODE unknown or unexpected, drop command");
-        uniqueContext.silentlyClose();
-        Thread.currentThread().interrupt();
-    }
-
+    /**
+     * <b>Constructor</b>
+     * @param login the client login to use.
+     * @param serverAddress The server addres to connect to.
+     * @param directory the working directory of the client
+     * @throws IOException
+     */
     public ClientChatFusion(String login, InetSocketAddress serverAddress, String directory) throws IOException {
         this.fileSender = new FileSender(this);
         this.serverAddress = serverAddress;
@@ -57,6 +56,22 @@ public class ClientChatFusion {
         this.directory = directory;
     }
 
+    private ByteBuffer buildFileChunk(byte[] data, String serverDst, String loginDst, String fileName, int nbChunk){
+        return new FilePrivate(serverName, login, serverDst, loginDst, fileName, nbChunk, data.length, data).toBuffer();
+    }
+
+    private void eject(){
+        System.out.println("OPCODE unknown or unexpected, drop command");
+        uniqueContext.silentlyClose();
+        Thread.currentThread().interrupt();
+    }
+
+    /**
+     * Starts a client on the console.
+     * @param args
+     * @throws NumberFormatException
+     * @throws IOException
+     */
     public static void main(String[] args) throws NumberFormatException, IOException {
         if (args.length != 4) {
             usage();
@@ -151,6 +166,10 @@ public class ClientChatFusion {
     //                                                selection loop                                                  //
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    /**
+     * Launches the client and its subprocesses
+     * @throws IOException
+     */
     public void launch() throws IOException {
         sc.configureBlocking(false);
         var key = sc.register(selector, SelectionKey.OP_CONNECT);
@@ -446,7 +465,10 @@ public class ClientChatFusion {
         }
     }
 
-    public static class FileSendInfo {
+    /**
+     * The classe storing any file, chunking and file sending process.
+     */
+    private static class FileSendInfo {
         private final FileChannel file;
         private final String loginDst;
         private final String fileName;
@@ -455,6 +477,15 @@ public class ClientChatFusion {
         private final int nbChunk;
         private int nbChunkSent;
         private ByteBuffer chunk = ByteBuffer.allocate(MAX_IN_COMMAND);
+
+        /**
+         * <b>Constructor</b>
+         * @param filePath the path to the file.
+         * @param loginDst the destination client
+         * @param serverDst the destination server
+         * @param fileName the name of the file
+         * @throws IOException should the file be inaccessible or unreadable.
+         */
         public FileSendInfo(String filePath, String loginDst, String serverDst, String fileName) throws IOException {
             Path path = Path.of(filePath);
             this.file  = FileChannel.open(path);
@@ -465,6 +496,11 @@ public class ClientChatFusion {
             this.nbChunkSent = 0;
         }
 
+        /**
+         * checks if all chunk were sent
+         * @return T/F answering the question.
+         * @throws IOException
+         */
         public boolean isFullySent() throws IOException {
             if(nbChunk == nbChunkSent){
                 file.close();
@@ -473,6 +509,12 @@ public class ClientChatFusion {
             return nbChunkSent == nbChunk;
         }
 
+        /**
+         * Builds a chunk froim the file
+         * @param client a hook on the ChatFudion client that crated this process.
+         * @return a byte buffer filled according to the RFC.
+         * @throws IOException
+         */
         public ByteBuffer buildFileChunk(ClientChatFusion client) throws IOException {
             chunk.clear();
             var readValue = 1;
@@ -491,8 +533,10 @@ public class ClientChatFusion {
             return client.buildFileChunk(data, serverDst, loginDst, fileName, nbChunk);
         }
     }
-
-    public static class UnregisteredVisitor implements  FrameVisitor {
+    /**
+     * The class implementing the visitor.
+     */
+    private static class UnregisteredVisitor implements  FrameVisitor {
         private final Context context;
         private final ClientChatFusion client;
 
@@ -583,7 +627,7 @@ public class ClientChatFusion {
             client.eject();
         }
     }
-    public static class LoggedVisitor implements FrameVisitor {
+    private static class LoggedVisitor implements FrameVisitor {
         private final Context context;
         private final ClientChatFusion client;
 
